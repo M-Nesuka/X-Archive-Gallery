@@ -1,0 +1,70 @@
+name: バグ報告
+description: X Archive Galleryで発生した不具合を報告します
+title: "[Bug] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ご報告ありがとうございます。
+        **個人情報、Xアーカイブ本体、Analytics CSV、作品ファイルは公開Issueへ添付しないでください。**
+
+  - type: input
+    id: app_version
+    attributes:
+      label: X Archive Galleryのバージョン
+      placeholder: 例：v1.4.0
+    validations:
+      required: true
+
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windowsのバージョン
+      placeholder: 例：Windows 11 24H2 64bit
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 何が起きましたか？
+      description: 実際に起きたことをできるだけ具体的に書いてください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: どの操作をすると発生するか、分かる範囲で書いてください。
+      placeholder: |
+        1. アプリを起動
+        2. ○○を選択
+        3. △△を押す
+        4. エラーが表示された
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 本来どうなると思いましたか？
+
+  - type: textarea
+    id: error_message
+    attributes:
+      label: エラーメッセージ
+      description: 表示された文章があれば貼り付けてください。個人情報やローカルパスが含まれる場合は伏せてください。
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 補足
+      description: スクリーンショットを添付する場合は、個人情報や作品内容の公開範囲に注意してください。
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 公開情報の確認
+      options:
+        - label: 個人情報、Xアーカイブ、Analytics CSVなどの非公開データを添付していないことを確認しました。
+          required: true
