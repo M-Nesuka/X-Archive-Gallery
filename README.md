@@ -31,18 +31,18 @@ X公式データアーカイブから、過去に投稿した画像・GIF・動�
 
 配布ファイル名:
 
-`XArchiveGallery_v1.4.0_Windows_x64.zip`
+`XArchiveGallery_v1.4.3_Windows_x64.zip`
 
 ZIP SHA-256:
 
 ```text
-fe7cc33334178129dc444ac6579e8e306e4dea46e26cfdcb8a274b764e55d805
+5b3fe4aa017c56c197db5100605a257b8170a4b5115a1c0f141bced7ebf3f96e
 ```
 
 EXE SHA-256:
 
 ```text
-706c4bd12733d9666ce0bdc8b7f4683d99c005d455d1215688f71ddd119ab103
+8067d2d1c9354ecfa398258bbe11efc12de36f8c68cd5bebc209b820b3c11684
 ```
 
 ## 初回利用
