@@ -1,0 +1,37 @@
+name: Import v1.5.0 source ZIP
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - application-source.zip
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Extract source ZIP
+        shell: bash
+        run: |
+          python -m zipfile -e application-source.zip .
+          rm application-source.zip
+
+      - name: Commit extracted source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Publish X Archive Gallery v1.5.0 source"
+            git push
+          fi
