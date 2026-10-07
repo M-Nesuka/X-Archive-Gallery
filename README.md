@@ -1,107 +1,87 @@
-# X Archive Gallery
+# X Archive Gallery v1.5.0
 
-**Created by M.Nesuka**
+**正式版 / Stable release — Created by M.Nesuka**
 
-X公式データアーカイブから、過去に投稿した画像・GIF・動画を保存・閲覧・整理し、作品を掘り起こすためのWindows向けローカル作品管理アプリです。
+A local Windows gallery for images, GIFs and videos from your X archive.
+Includes manual tags, favorites, exact-duplicate hiding, discovery, slideshow,
+optional content Analytics, Japanese/English UI and dark/light themes.
+No AI analysis, cloud API, web server or X account sign-in is used by the app.
 
-> **Xログイン不要 / AI・クラウドAPI不使用 / ローカル処理**
+## Download and update
 
-## 主な機能
+Download `XArchiveGallery_v1.5.0_Windows_x64.zip` from this repository's v1.5.0
+Release. Extract the ZIP and open `XArchiveGallery.exe`; Python is not required.
+Keep the accompanying license documents. Read `はじめに.txt` and `使い方.txt`.
 
-- X公式データアーカイブZIPから作品を保存
-- 画像・GIF・動画をダークテーマのギャラリーで閲覧
-- 年月、メディア種別、投稿ID、ファイル名、タグで検索・絞り込み
-- お気に入り、非表示、手動タグ、一括操作
-- ランダム発掘、古い作品・しばらく見ていない作品の発掘
-- 複数Xアカウントのライブラリ管理
-- X Analytics「コンテンツ（投稿別）」CSVを任意で追加
-- Analyticsの数値から高成績タグ・NO.1タグを自動生成
-- スライドショー、全画面表示、画像コピー、動画再生
-- 完全一致画像の重複非表示
+Existing v1.4.x users: close the app, replace its EXE with this release, and open
+it under the same Windows user. **Do not reset or re-import your library.**
+Works stay in your library; tags, favorites, Analytics and settings stay in
+`%LOCALAPPDATA%/XArchiveGallery/data`. Database schema version 8 is unchanged.
 
-## 対応環境
+First use: choose a save location → select the X archive ZIP → optionally select
+a **content / post-level** Analytics CSV → import → view the gallery.
+Analytics is optional. Language is selected from `… → 言語 / Language`.
 
-- **確認対象:** Windows 11 64bit
-- Pythonの別途インストールは不要です。
-- その他のWindows環境は動作確認対象外です。
+To update works, import the newer full archive into the same library. Existing
+post attachments retain their saved file and annotations even when X changes
+the image encoding or export size. Only new attachments are added.
+Identical bytes reused in another post share one verified backup file while
+retaining separate post/Analytics links. Older duplicate attachment records
+are displayed once; private annotations are merged
+after a verified DB backup. Original catalog rows and artwork files are retained.
 
-## ダウンロード
+## License
 
-最新版はGitHubの **Releases** からダウンロードしてください。
+M.Nesuka's original code is **Source Available**, not MIT or open source.
+Viewing and private personal study/reference are allowed; redistribution of the
+app/original source/modified versions and paid distribution require permission.
+See [LICENSE.md](LICENSE.md). Third-party components keep their own licenses.
+Library-replacement and debugging rights required by the LGPL are preserved.
+See [THIRD_PARTY.md](THIRD_PARTY.md) for component sources and notices.
 
-配布ファイル名:
+## Run the source (Windows x64, Python 3.12)
 
-`XArchiveGallery_v1.4.3_Windows_x64.zip`
+These commands use files included in this source folder and in
+`licenses/application-source.zip`. Open Command Prompt in the extracted folder:
 
-ZIP SHA-256:
-
-```text
-5b3fe4aa017c56c197db5100605a257b8170a4b5115a1c0f141bced7ebf3f96e
+```bat
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe main.py
 ```
 
-EXE SHA-256:
+The audited poster-extraction FFmpeg is supplied with the release. To build,
+follow [BUILDING.md](BUILDING.md); do not bundle the unrelated GPL executable
+inside the upstream imageio-ffmpeg wheel.
 
-```text
-8067d2d1c9354ecfa398258bbe11efc12de36f8c68cd5bebc209b820b3c11684
+## Build
+
+```bat
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe tools/build_single.py
 ```
 
-## 初回利用
+First complete `BUILDING.md` prerequisites.
+Output: `single-build/dist/XArchiveGallery.exe`.
+The build rejects private data and audits dependencies and license inputs.
+All referenced scripts are included. Internal tests and external QA fixtures
+are not required and are not described as bundled files.
 
-1. 配布ZIPをダウンロードします。
-2. ZIPを右クリックして **「すべて展開」** します。
-3. `XArchiveGallery.exe` を起動します。
-4. 作品を保存する場所を選びます。
-5. Xから取得した公式データアーカイブZIPを選びます。
-6. 必要であればX Analytics CSVを追加します。Analyticsはスキップ可能です。
-7. 取り込み完了後、ギャラリーを利用できます。
+## Storage and privacy
 
-### Analyticsについて
+User information is independent of the app folder and version. `--data-dir` is
+an explicit developer override. Gallery access to `catalog.sqlite3` is read-only;
+only a confirmed archive import updates it. Library IDs separate annotations.
+Migrations check integrity, back up old DBs and use transactions.
+Diagnostics exclude works, databases, CSVs and library/file histories.
 
-Analytics CSVを追加すると、投稿データに基づいて高成績タグやNO.1タグが自動で付きます。
+## Library replacement and release information
 
-これは画像内容をAIで解析する機能ではありません。X Analyticsの数値から判定します。
+The EXE expands a dynamically linked runtime into the user cache.
+Interface-compatible LGPL libraries can be replaced there; see
+`docs/LIBRARY_REPLACEMENT.md`. Third-party code is not relicensed under the app license.
+Matching third-party source archives and checksums are supplied with the Release.
+See `docs/PUBLISHING.md` and `third_party/source-manifest.json`.
+Signing is optional and supported by `tools/sign_release.py`.
 
-成績タグは **「その画像を含む投稿全体の成績」** です。画像単体の品質や成績を判定するものではありません。
-
-## データとプライバシー
-
-- Xアカウントへのログイン機能はありません。
-- AI、生成AI API、クラウド画像解析は使用しません。
-- 作品・タグ・お気に入り・Analytics等はローカルに保存されます。
-- 元のXアーカイブZIPそのものを自動保管する機能ではありません。
-
-## 更新
-
-以前のバージョンを使用している場合、通常は新しい配布物へ入れ替えるだけで更新できます。
-
-タグ・お気に入り・Analytics等のユーザーデータはアプリ本体とは別に保存されます。詳細は配布ZIP内の説明書を確認してください。
-
-## 未署名アプリについて
-
-現在、コード署名は行っていません。環境によってはWindows SmartScreen等の警告が表示される場合があります。
-
-## バグ報告
-
-不具合を見つけた場合は、このリポジトリの **Issues** から報告してください。
-
-報告時に次の情報があると調査しやすくなります。
-
-- Windowsのバージョン
-- X Archive Galleryのバージョン
-- 何をしていたときに発生したか
-- 表示されたエラーメッセージ
-- 可能であればスクリーンショット
-
-**個人情報、Xアーカイブ本体、Analytics CSV、作品ファイルなどは公開Issueへ添付しないでください。**
-
-## 注意事項
-
-本ソフトはX Corp.の公式製品ではなく、X Corp.との提携・承認関係はありません。
-
-利用前に大切なデータのバックアップを推奨します。特に「保存した作品をすべて削除」は明示的な削除機能です。通常の更新では使用しないでください。
-
-## ライセンス・第三者ソフトウェア
-
-配布ZIPには、使用している第三者ソフトウェアのライセンス資料および必要な関連資料を同梱しています。
-
-本アプリ自体の利用条件については、正式公開時の配布条件を確認してください。
+Author: **M.Nesuka**. This app is not affiliated with X Corp.

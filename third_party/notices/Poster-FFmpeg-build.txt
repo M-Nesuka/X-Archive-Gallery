@@ -1,0 +1,22 @@
+ffmpeg is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 2.1 of the License, or (at your option) any later version.
+
+ffmpeg is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with ffmpeg; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ffmpeg version 7.1.5 Copyright (c) 2000-2026 the FFmpeg developers
+  built with clang version 19.1.7 (https://github.com/llvm/llvm-project.git cd708029e0b2869e80abe31ddb175f7c35361f90)
+  configuration: --target-os=mingw32 --arch=x86_64 --cc=x86_64-w64-mingw32-clang --cxx=x86_64-w64-mingw32-clang++ --ar=x86_64-w64-mingw32-ar --nm=x86_64-w64-mingw32-nm --ranlib=x86_64-w64-mingw32-ranlib --pkg-config=pkgconf --pkg-config-flags=--static --prefix=/xag-poster --disable-autodetect --disable-gpl --disable-version3 --disable-nonfree --disable-doc --disable-debug --disable-ffplay --disable-ffprobe --disable-network --disable-avdevice --disable-x86asm --disable-encoders --enable-encoder=png --disable-muxers --enable-muxer=image2 --disable-filters --enable-filter='scale,format,null' --disable-protocols --enable-protocol='file,pipe' --enable-static --disable-shared --enable-zlib --enable-libdav1d --extra-cflags=-I../installed/include --extra-ldflags=-L../installed/lib
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.101 / 61. 19.101
+  libavformat    61.  7.103 / 61.  7.103
+  libavfilter    10.  5.100 / 10.  5.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100

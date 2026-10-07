@@ -1,0 +1,12 @@
+{
+  "version": "7.1.5",
+  "license": "LGPL-2.1-or-later",
+  "sha256": "4491ad2c8be3c99fe2e61db639f9669d097771bc48d489f6c5924430fbbe1e71",
+  "static_dependencies": {
+    "dav1d": "1.5.1",
+    "zlib": "1.3.1"
+  },
+  "build_recipe": "tools/build_poster_ffmpeg.py",
+  "upstream_sources": "source-manifest.json",
+  "private_build_paths_removed": true
+}

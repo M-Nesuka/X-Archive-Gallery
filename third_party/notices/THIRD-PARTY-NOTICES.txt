@@ -1,0 +1,16 @@
+X Archive Gallery v1.5.0 — Created by M.Nesuka
+This software uses Qt/PySide6/Shiboken under LGPLv3 and FFmpeg under
+LGPLv2.1-or-later. Qt and its FFmpeg playback libraries are dynamically
+replaceable. The separate LGPL poster process has sources for its static
+dav1d/zlib dependencies. The Gyan GPL executable and GPL-only Qt Virtual
+Keyboard are not shipped.
+
+Python, Pillow, ijson/YAJL, imageio-ffmpeg, OpenSSL, Mesa and compiler/Windows
+runtimes retain their own copyright notices and original license terms.
+PyInstaller's bootloader exception permits non-free application distribution.
+The application's Source Available license does not limit third-party rights.
+
+See THIRD_PARTY.md, source-manifest.json, original notices in this folder,
+LIBRARY_REPLACEMENT.md, and the matching ThirdPartySources ZIP supplied on
+the same GitHub Release as the app ZIP. These source archives are supplied
+directly; an upstream source link alone is not used as a source-delivery offer.
