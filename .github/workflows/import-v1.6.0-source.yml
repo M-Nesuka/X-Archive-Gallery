@@ -1,0 +1,109 @@
+name: Import X Archive Gallery v1.6.0 source (one time)
+
+on:
+  push:
+    branches:
+      - prepare/v1.6.0
+    paths:
+      - 'XArchiveGallery_v1.6.0_application-source.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Check uploaded ZIP and safely replace only application source
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import pathlib
+          import subprocess
+          import zipfile
+
+          filename = 'XArchiveGallery_v1.6.0_application-source.zip'
+          expected_sha256 = '2477e0208e6f68f4b90584ef2b133a6c64ecdc5c9e5bd7b6dffa52017a03d9f7'
+          zip_path = pathlib.Path(filename)
+          if not zip_path.is_file():
+              raise SystemExit('Upload the exact v1.6.0 application-source ZIP first.')
+          with zip_path.open('rb') as stream:
+              actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+          if actual != expected_sha256:
+              raise SystemExit(f'Source ZIP SHA-256 mismatch: {actual}')
+
+          with zipfile.ZipFile(zip_path) as archive:
+              entries = [i for i in archive.infolist() if not i.is_dir()]
+              if len(entries) != 344:
+                  raise SystemExit(f'Expected 344 source files, got {len(entries)}')
+              names = set()
+              for info in entries:
+                  path = pathlib.PurePosixPath(info.filename)
+                  if (path.is_absolute() or not path.parts or '..' in path.parts or
+                      '\\' in info.filename or path.parts[0] in ('.git', '.github') or
+                      info.filename in names or info.file_size > 32_000_000 or
+                      ((info.external_attr >> 16) & 0o170000) == 0o120000):
+                      raise SystemExit(f'Unsafe ZIP member: {info.filename}')
+                  names.add(info.filename)
+              for needed in ['README.md', 'CHANGELOG.md', 'LICENSE.md', 'THIRD_PARTY.md',
+                             'BUILDING.md', 'yamivault/version.py', 'main.py',
+                             'third_party/ffmpeg-bin/ffmpeg.exe']:
+                  if needed not in names:
+                      raise SystemExit(f'Missing required source file: {needed}')
+              if "__version__ = '1.6.0'" not in archive.read('yamivault/version.py').decode():
+                  raise SystemExit('Version mismatch')
+              if '# X Archive Gallery v1.6.0' not in archive.read('README.md').decode():
+                  raise SystemExit('README version mismatch')
+              if '## v1.6.0' not in archive.read('CHANGELOG.md').decode():
+                  raise SystemExit('CHANGELOG version mismatch')
+
+              tracked = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+              for old in tracked:
+                  if not old:
+                      continue
+                  old_path = os.fsdecode(old)
+                  if (old_path in names or old_path == filename or
+                      old_path.startswith('.github/')):
+                      continue
+                  target = pathlib.Path(old_path)
+                  if target.is_file() or target.is_symlink():
+                      target.unlink()
+              for info in entries:
+                  target = pathlib.Path(info.filename)
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(archive.read(info))
+
+          zip_path.unlink()
+          assert not zip_path.exists()
+          print('PASS: v1.6.0 source imported and ZIP removed.')
+          PY
+      - name: Validate source tree
+        run: |
+          python3 - <<'PY'
+          import ast
+          import pathlib
+          count = 0
+          for path in pathlib.Path('.').rglob('*.py'):
+              if '.git' in path.parts:
+                  continue
+              ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+              count += 1
+          print(f'PASS: Python source syntax ({count} files)')
+          PY
+          git diff --check
+      - name: Commit source on preparation branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Nothing to commit.'
+          else
+            git commit -m 'Import audited X Archive Gallery v1.6.0 source'
+            git push origin HEAD:prepare/v1.6.0
+          fi
