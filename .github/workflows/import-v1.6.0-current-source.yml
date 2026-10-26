@@ -1,0 +1,113 @@
+name: Stage v1.6.0 application source
+on:
+  push:
+    branches:
+      - prepare/v1.6.0
+    paths:
+      - application-source.zip
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Validate source ZIP and stage current v1.6.0
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+          import stat
+          import subprocess
+          import zipfile
+
+          source = pathlib.Path('application-source.zip')
+          if not source.exists():
+              raise SystemExit('No application-source.zip')
+          with zipfile.ZipFile(source) as archive:
+              members = [m for m in archive.infolist() if not m.is_dir()]
+              if not 100 <= len(members) <= 1000:
+                  raise SystemExit(f'Unexpected source file count: {len(members)}')
+              paths = set()
+              total = 0
+              for item in members:
+                  name = item.filename
+                  posix = pathlib.PurePosixPath(name)
+                  mode = item.external_attr >> 16
+                  if (posix.is_absolute() or not posix.parts or
+                      '..' in posix.parts or '\\' in name or
+                      posix.parts[0] in {'.git', '.github'} or
+                      name in paths or stat.S_ISLNK(mode) or
+                      item.file_size > 32 * 1024 * 1024):
+                      raise SystemExit(f'Unsafe entry: {name}')
+                  total += item.file_size
+                  if total > 120 * 1024 * 1024:
+                      raise SystemExit('Source ZIP exceeds uncompressed size limit')
+                  paths.add(name)
+              required = {
+                  'main.py', 'README.md', 'CHANGELOG.md',
+                  'LICENSE.md', 'THIRD_PARTY.md', 'BUILDING.md',
+                  'yamivault/version.py'
+              }
+              if not required.issubset(paths):
+                  raise SystemExit(f'Missing source files: {required - paths}')
+              version = archive.read('yamivault/version.py').decode('utf-8')
+              if not re.search(r'(?<!\d)1\.6\.0(?!\d)', version):
+                  raise SystemExit('Application version is not 1.6.0')
+              if '1.6.0' not in archive.read('README.md').decode('utf-8'):
+                  raise SystemExit('README does not mention 1.6.0')
+              if '1.6.0' not in archive.read('CHANGELOG.md').decode('utf-8'):
+                  raise SystemExit('CHANGELOG does not mention 1.6.0')
+              deny = ('catalog.sqlite3', 'yami_vault.sqlite3', '.env',
+                      'config.local.php', 'SHA256SUMS.txt')
+              for name in paths:
+                  if pathlib.PurePosixPath(name).name in deny:
+                      raise SystemExit(f'Unexpected personal/private content: {name}')
+              print(f'Validated {len(paths)} files, {total} uncompressed bytes')
+              tracked = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+              for previous in tracked:
+                  if not previous:
+                      continue
+                  name = os.fsdecode(previous)
+                  if name in paths or name == 'application-source.zip' or name.startswith('.github/'):
+                      continue
+                  if name == 'docs/RELEASE_NOTES_v1.6.0_DRAFT.md':
+                      continue
+                  old = pathlib.Path(name)
+                  if old.is_file() or old.is_symlink():
+                      old.unlink()
+              for item in members:
+                  target = pathlib.Path(item.filename)
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(archive.read(item))
+          source.unlink()
+          print('Source staged for review; public main and releases unchanged.')
+          PY
+      - name: Check Python syntax and stage every delivered source file
+        run: |
+          python3 - <<'PY'
+          import ast
+          import pathlib
+          count = 0
+          for f in pathlib.Path('.').rglob('*.py'):
+              if '.git' not in f.parts:
+                  ast.parse(f.read_text(encoding='utf8'), filename=str(f))
+                  count += 1
+          print(f'PASS: parsed {count} Python files')
+          PY
+          git add -A
+          git diff --check --cached
+      - name: Commit to preparation branch only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --cached --quiet; then
+            git commit -m "Stage verified v1.6.0 application source for review"
+            git push origin HEAD:prepare/v1.6.0
+          fi
