@@ -12,6 +12,7 @@ class ImportPanel(SetupPresentation,QFrame):
     closed=Signal()
     def __init__(self, controller, get_root, on_analytics_import=None, parent=None):
         super().__init__(parent)
+        self.main_window=parent
         self.history={}
         self.controller=controller
         self.get_root=get_root
@@ -40,11 +41,11 @@ class ImportPanel(SetupPresentation,QFrame):
         close=QPushButton('✕')
         close.setObjectName('setupClose')
         close.setFixedSize(38,38)
-        close.setAccessibleName(tr('取り込みサイドバーを閉じる'))
+        close.setAccessibleName(tr('取り込み画面を閉じる'))
         close.setToolTip(tr('取り込み中もパネルを閉じて閲覧できます'))
         close.clicked.connect(lambda checked=False:self.closed.emit())
         self.setup_help=QPushButton(tr('使い方'))
-        self.setup_help.clicked.connect(lambda:self.window().show_help())
+        self.setup_help.clicked.connect(lambda:self.window().show_quick_guide())
         self.setup_help.hide()
         header.addWidget(self.setup_help)
         header.addWidget(close)
@@ -91,6 +92,11 @@ class ImportPanel(SetupPresentation,QFrame):
         self.zip_label.setMinimumWidth(0)
         self.zip_label.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
         layout.addWidget(self.zip_label)
+        self.post_tag_options_button=QPushButton(tr('自動タグの設定…'))
+        self.post_tag_options_button.setAutoDefault(False)
+        self.post_tag_options_button.clicked.connect(lambda:self.window().open_post_tag_options())
+        self.post_tag_options_button.setToolTip(tr('登録したタグと探す言葉、自動登録するハッシュタグの条件を設定します。'))
+        layout.addWidget(self.post_tag_options_button)
         self.flow_hint=QLabel(tr('① 保存先 → ② ZIP → ③ Analytics（任意）→ ギャラリー'))
         self.flow_hint.setObjectName('muted')
         self.flow_hint.setWordWrap(True)
@@ -139,7 +145,7 @@ class ImportPanel(SetupPresentation,QFrame):
         analytics_row.addWidget(self.analytics_import_button)
         layout.addLayout(analytics_row)
         self.keep_csv=QCheckBox(tr('元のCSVもバックアップに保存'))
-        self.keep_csv.setChecked(bool(controller.store.get('keep_analytics_csv',False)))
+        self.keep_csv.setChecked(bool(controller.store.get('keep_analytics_csv',True)))
         self.keep_csv.setToolTip(tr('ON：アカウント別バックアップのAnalyticsフォルダーに元CSVをコピーします。\nOFFでも成績データ・タグはアプリのDBに保存されます。'))
         self.keep_csv.toggled.connect(lambda enabled:controller.store.set('keep_analytics_csv',bool(enabled)))
         layout.addWidget(self.keep_csv)
@@ -175,10 +181,6 @@ class ImportPanel(SetupPresentation,QFrame):
         self.preview_issues=QPushButton(tr('注意対象の画像を確認'))
         self.preview_issues.clicked.connect(self.open_issue_gallery)
         layout.addWidget(self.preview_issues)
-        self.reset_button=QPushButton(tr('保存した作品をすべて削除…'))
-        self.reset_button.setToolTip(tr('選択中のバックアップ内の作品・管理情報をすべて削除します'))
-        self.reset_button.clicked.connect(self._reset_library)
-        layout.addWidget(self.reset_button)
         self.details_button=QPushButton(tr('確認事項を表示'))
         self.details_button.setCheckable(True)
         self.details_button.toggled.connect(self.toggle_issues)
@@ -204,6 +206,10 @@ class ImportPanel(SetupPresentation,QFrame):
         controller.changed.connect(self.update_state)
         self._detail_key=None
         self.update_state()
+
+    def window(self):
+        # A separate import window still delegates gallery actions to the main app.
+        return self.main_window or super().window()
 
     def set_analytics_status(self, text, tooltip=''):
         self.analytics_status.setText(text)
@@ -291,6 +297,7 @@ class ImportPanel(SetupPresentation,QFrame):
 
     def retry_analysis(self):
         if self.pending_zip and self.pending_destination:
+            self.setup_override=None
             try:
                 self.destination_error='';self.combined_message=''
                 self.controller.analyze(self.pending_zip,self.pending_destination)
@@ -312,11 +319,6 @@ class ImportPanel(SetupPresentation,QFrame):
     def toggle_issues(self,checked):
         self.issues.setVisible(checked)
 
-    def _reset_library(self):
-        window=self.window()
-        if hasattr(window,'reset_backup'):
-            window.reset_backup()
-
     def open_issue_gallery(self):
         issues=self.controller.summary.get('issues',[]) or self.controller.result.get('result',{}).get('issues',[])
         fallback=self.controller.request.get('zip_path') if hasattr(self.controller,'request') else None
@@ -336,6 +338,7 @@ class ImportPanel(SetupPresentation,QFrame):
 
     def update_state(self):
         c=self.controller
+        self.post_tag_options_button.setEnabled(not c.active and not self.analytics_busy)
         busy=c.active or self.analytics_busy
         signature=(self.onboarding,c.phase,self.analytics_busy,self.preview_busy,c.cancel_requested,
                    self.destination_error,self.analytics_error,self.combined_message,
@@ -362,8 +365,6 @@ class ImportPanel(SetupPresentation,QFrame):
         self.skip_analytics_button.setVisible(not getattr(self.window(),'library_configured',False) or bool(self.pending_zip or self.pending_csv))
         self.view_gallery_button.setVisible(getattr(self.window(),'library_configured',False) and not busy and not getattr(self.window(),'loading',False))
         self.retry.setVisible(bool(self.pending_zip and self.pending_destination) and not busy and c.phase!='ready')
-        self.reset_button.setEnabled(not busy and not getattr(self.window(),'loading',False) and not getattr(self.window(),'aggregate_entries',[]))
-        self.reset_button.setVisible((self.get_root()/'.system'/'catalog.sqlite3').is_file())
         issues_preview=c.summary.get('issues',[]) or c.result.get('result',{}).get('issues',[])
         self.preview_issues.setVisible(bool(issues_preview))
         csv_only=not self.pending_zip and self.pending_csv and getattr(self.window(),'library_configured',False)
@@ -423,7 +424,7 @@ class ImportPanel(SetupPresentation,QFrame):
             except Exception:
                 pass
             matched=len({r['post_id'] for r in p.rows}&post_ids)
-            self.csv_summary.setText(trf('{0}\n投稿日 {1} ～ {2}\n{3:,}投稿 · 照合予定 {4:,} · 未照合 {5:,}\n認識した指標: ', self.pending_csv.name, p.period_start[:10], p.period_end[:10], p.post_count, matched, p.post_count - matched)+', '.join(tr(METRIC_LABELS[m]) for m in p.recognized_metrics)+(tr('\n同じCSVは取り込み済みです。二重登録せず、照合を更新します。') if p.already_imported else tr('\n取り込み後、投稿IDで作品と紐付けて高成績タグを更新します。')))
+            self.csv_summary.setText(tr('今回のCSV')+'\n'+trf('{0}\n投稿日 {1} ～ {2}\n{3:,}投稿 · 照合予定 {4:,} · 未照合 {5:,}\n認識した指標: ', self.pending_csv.name, p.period_start[:10], p.period_end[:10], p.post_count, matched, p.post_count - matched)+', '.join(tr(METRIC_LABELS[m]) for m in p.recognized_metrics)+(tr('\n同じCSVは取り込み済みです。二重登録せず、照合を更新します。') if p.already_imported else tr('\n取り込み後、投稿IDで作品と紐付けて高成績タグを更新します。')))
             self.csv_summary.show()
         else:
             self.csv_summary.setText(tr('CSVは任意です。アーカイブと一緒に選ぶと、1回の実行で両方を取り込めます。'))
@@ -431,7 +432,7 @@ class ImportPanel(SetupPresentation,QFrame):
             dates=(s.get('media_min') or '')[:10]+' ～ '+(s.get('media_max') or '')[:10]
             account='@'+s['username'] if s.get('username') else 'ID '+(s.get('owner') or tr('確認できません'))
             text=trf('保存対象 {0:,}ファイル\n対象作品の投稿日 {1}\nアカウント {2}\n注意 {3:,}件 / エラー {4:,}件', s['total'], dates, account, s['warnings'], s['errors'])
-            compact_confirmation=self.onboarding and c.phase=='ready'
+            compact_confirmation=c.phase=='ready'
             if compact_confirmation:
                 text=trf('{0} · 保存対象 {1:,}ファイル · 注意 {2:,}件 / エラー {3:,}件\n投稿日 {4}', account, s['total'], s['warnings'], s['errors'], dates)
             library=c.store.library(c.root)

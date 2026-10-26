@@ -1,5 +1,5 @@
 """Background process, invoked by the same executable. No Qt UI is imported."""
-from dataclasses import asdict
+from dataclasses import asdict,fields
 import json
 import os
 from pathlib import Path
@@ -89,7 +89,7 @@ def run(job, action):
         if action=='analyze':
             plan=analyze(request['zip_path'],progress,cancelled)
             atomic_json(job/'plan.json',asdict(plan))
-            summary={key:value for key,value in asdict(plan).items() if key not in ('assets','issues')}
+            summary={f.name:getattr(plan,f.name) for f in fields(plan) if f.name not in ('assets','issues','post_metadata')}
             summary.update({'total':len(plan.assets),'total_bytes':plan.total_bytes,
                             'post_ids':sorted({a.post_id for a in plan.assets if a.post_id}),
                             'media_min':min((a.posted_at for a in plan.assets),default=None),
@@ -119,8 +119,26 @@ def run(job, action):
                 raise ValueError('空き容量が不足しています。保存済みの作品は変更していません。')
             result=run_backup(plan,str(root.parent),progress,cancelled,root_override=root,run_id=request['run_id'])
             status='cancelled' if result.cancelled else ('errors' if result.errors else ('warnings' if result.warnings else 'complete'))
+            tag_warning=False
+            store=None
+            try:
+                # Keep the large text/keyword pass in this child process, not
+                # in the GUI's QProcess completion callback.
+                from .store import VaultStore
+                from .catalog import read_catalog
+                progress('投稿文のタグを整理しています…',0,1)
+                store=VaultStore(Path(request['private_data_dir']))
+                lid=store.library(root)
+                store.save_post_text(lid,plan.post_metadata)
+                store.reconcile_post_tags(lid,read_catalog(root)+store.warning_assets(lid))
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception('Post text metadata could not be saved')
+                tag_warning=True
+            finally:
+                if store:store.close()
             atomic_json(job/'result.json',{'action':action,'ok':True,'status':status,
-                        'run_id':request['run_id'],'result':asdict(result)})
+                        'run_id':request['run_id'],'result':asdict(result),'post_tags_warning':tag_warning})
         else:
             raise ValueError('Unknown worker action')
     except Cancelled:

@@ -397,7 +397,7 @@ class Gallery(QAbstractScrollArea):
                 self.multi_selection.clear()
                 self.multi_changed.emit()
                 self.selection = asset.identity
-                self.selected.emit(asset)
+                self.viewport().update()
             self.context.emit(asset, event.globalPosition().toPoint())
         elif event.button() == Qt.MouseButton.LeftButton:
             if multiple:

@@ -18,3 +18,4 @@ data/
 cache/
 warning_media/
 imports/
+!third_party/notices/**

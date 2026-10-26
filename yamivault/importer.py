@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import uuid
+import sqlite3
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
@@ -187,6 +188,8 @@ class ImportController(QObject):
             titles={'complete':tr('取り込みが完了しました。'),'warnings':tr('取り込みが完了しました（注意あり）。'),
                     'errors':tr('一部を保存できませんでした。確認事項をご覧ください。'),'cancelled':tr('中止しました。保存済み作品は残っています。')}
             self.message=titles.get(self.phase,tr('処理が終了しました。'))
+            if value.get('post_tags_warning'):
+                self.message+=tr(' 投稿文の保存に失敗しました。タグ管理からZIPの投稿文を読み直してください。')
             if self.phase in ('complete','warnings'):
                 from .accounts import register_account
                 register_account(self.store,self.root,self.summary,completed=True)

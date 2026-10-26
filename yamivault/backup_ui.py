@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from PySide6.QtCore import QTimer, Qt, QPointF
 from PySide6.QtGui import QPainter,QPen,QColor
-from PySide6.QtWidgets import QFrame,QHBoxLayout,QLabel,QPushButton,QSizePolicy,QMessageBox,QFileDialog,QCheckBox,QStyleOptionButton,QStyle
+from PySide6.QtWidgets import QFrame,QHBoxLayout,QVBoxLayout,QDialog,QLabel,QPushButton,QSizePolicy,QMessageBox,QFileDialog,QCheckBox,QStyleOptionButton,QStyle
 from .import_panel import ImportPanel
 from .catalog import JST
 from .appearance import theme_color
@@ -36,6 +36,14 @@ class SubtleDuplicateCheckBox(QCheckBox):
 
 
 class BackupUiMixin:
+    def open_post_tag_options(self):
+        if self.importer.active:return
+        panel=self.import_panel
+        target=self.importer.root if panel.pending_zip and self.importer.root else (panel.pending_destination or self.root)
+        lid=self.store.library(target) if target and (target/'.system/catalog.sqlite3').is_file() else None
+        from .post_tag_ui import PostTagOptionsDialog
+        PostTagOptionsDialog(window=self,library_id=lid,root=target).exec()
+
     def build_backup_strip(self, layout):
         strip=QFrame()
         self.backup_strip=strip
@@ -69,7 +77,13 @@ class BackupUiMixin:
         layout.addWidget(strip)
 
     def build_import_panel(self, layout):
-        self.import_panel=ImportPanel(self.importer,lambda:self.root,self.open_analytics_csv_import)
+        self.import_panel=ImportPanel(self.importer,lambda:self.root,self.open_analytics_csv_import,self)
+        self.import_host_layout=layout
+        self.import_dialog=QDialog(self)
+        self.import_dialog.setWindowTitle(tr('アーカイブ取り込み'))
+        self.import_dialog.resize(860,720);self.import_dialog.setMinimumSize(720,520)
+        self.import_dialog_layout=QVBoxLayout(self.import_dialog)
+        self.import_dialog.rejected.connect(self.close_import)
         self.analytics_status=self.import_panel.analytics_status
         self.analytics_import_button=self.import_panel.analytics_import_button
         self.import_panel.closed.connect(self.close_import)
@@ -89,6 +103,7 @@ class BackupUiMixin:
         if self.importer.phase not in ('ready','analyzing') and self.library_configured:
             panel.pending_zip=None
         panel.pending_csv=Path(path).resolve()
+        panel.setup_override=None
         panel.analytics_preview=None;panel.analytics_error='';panel.combined_message=''
         panel.preview_busy=True;panel.update_state()
         from .analytics_job import AnalyticsJob
@@ -146,11 +161,13 @@ class BackupUiMixin:
             panel.pending_zip=None
         else:
             summary=result['summary']
-            panel.combined_message=(tr('CSVは取り込み済みのため照合を更新しました。') if result['repeated'] else tr('Analyticsの取り込みが完了しました。'))+trf('\n{0:,} posts · 照合 {1:,} · 未照合 {2:,}', summary['post_count'], summary['matched_posts'], summary['unmatched_posts'])
+            panel.combined_message=(tr('CSVは取り込み済みのため照合を更新しました。') if result['repeated'] else tr('Analyticsの取り込みが完了しました。'))+trf('\n総合成績：作品のある{0:,}投稿で判定（保存済みCSV {1:,}回分）\n今回のCSV：{2:,}投稿 · 照合 {3:,} · 未照合 {4:,}', summary['ranking_post_count'],summary['cumulative_import_count'],summary['post_count'], summary['matched_posts'], summary['unmatched_posts'])
             panel.analytics_preview.already_imported=True
             if result.get('saved_csv'):
                 panel.combined_message+=tr('\n元CSVをバックアップ内のAnalyticsフォルダーに保存しました。')
             self.update_analytics_status();self.apply_filters()
+            if panel.onboarding and self.assets:
+                self.close_import();self.store.set('first_setup_draft',{})
             if self.current:self.update_performance_details(self.current)
             self.toast(panel.combined_message)
             panel.pending_zip=None
@@ -167,11 +184,36 @@ class BackupUiMixin:
         from .issues_viewer import IssueGallery
         IssueGallery(issues,self.store.directory,self,library_root=self.root,on_added=self.warning_assets_added).exec()
 
+    def restore_setup_choices(self):
+        if self._setup_draft_restored:return
+        self._setup_draft_restored=True
+        draft=self.store.get('first_setup_draft',{})
+        if not isinstance(draft,dict):return
+        panel=self.import_panel
+        if draft.get('destination'):panel.pending_destination=Path(draft['destination'])
+        if draft.get('zip') and Path(draft['zip']).is_file():panel.pending_zip=Path(draft['zip'])
+        if panel.pending_destination and panel.pending_zip:
+            QTimer.singleShot(100,panel.retry_analysis)
+        if draft.get('csv') and Path(draft['csv']).is_file():
+            panel.keep_csv.setChecked(bool(draft.get('keep_csv',panel.keep_csv.isChecked())))
+            QTimer.singleShot(0,lambda:self.stage_combined_csv(draft['csv']))
+
     def open_import(self):
         self.discovery_panel.hide()
         self.close_large()
         self.details.hide()
-        self.import_panel.set_onboarding(not self.library_configured or self.import_panel.onboarding)
+        if not self.assets and not self.loading and self.importer.phase=='idle':self.restore_setup_choices()
+        if self.library_configured and not self.assets and not self.import_panel.pending_destination:
+            self.import_panel.pending_destination=self.root
+        self.import_panel.set_onboarding(not self.library_configured or not self.assets or self.import_panel.onboarding)
+        if not self.import_panel.onboarding and not self.importer.active and not self.import_panel.analytics_busy:
+            if self.importer.phase!='ready':self.import_panel.setup_override=2
+        if self.import_panel.onboarding:
+            self.import_dialog.hide()
+            self.import_host_layout.addWidget(self.import_panel,1)
+        else:
+            self.import_dialog_layout.addWidget(self.import_panel)
+            self.import_dialog.show();self.import_dialog.raise_()
         self.gallery.setVisible(not self.import_panel.onboarding)
         for widget in (self.backup_strip,self.gallery_toolbar,self.app_footer,self.search,self.refresh_button):
             widget.setVisible(not self.import_panel.onboarding)
@@ -186,8 +228,11 @@ class BackupUiMixin:
             self.open_import()
 
     def close_import(self):
+        if not self.assets and self.import_panel.onboarding:
+            self.import_panel.update_state();return
         self.import_panel.set_onboarding(False)
         self.import_panel.hide()
+        self.import_dialog.hide()
         self.gallery.show()
         for widget in (self.backup_strip,self.gallery_toolbar,self.app_footer,self.search,self.refresh_button):widget.show()
         self.import_button.setText(tr('取り込み状況を表示') if self.importer.active else tr('アーカイブを取り込む'))
@@ -237,8 +282,8 @@ class BackupUiMixin:
                                                for post_id,record in self.performance_by_post.items()})
         summary=self.store.analytics_summary(self.library_id) if self.library_id else None
         if self.aggregate_entries:
-            self.import_panel.set_analytics_status(trf('{0}ライブラリ · ', len(summaries))+f"{sum(s['post_count'] for s in summaries):,} posts",
-                tr('順位はライブラリごとに判定します。CSVを追加するときは、対応する @アカウントを先に選択してください。'))
+            self.import_panel.set_analytics_status(trf('{0}ライブラリ · ', len(summaries))+f"{sum(s['cumulative_post_count'] for s in summaries):,} posts",
+                tr('保存済みの全CSVを含む投稿数です。順位はライブラリごとに判定します。CSV追加時は対応する @アカウントを選んでください。'))
             return
         if not summary:
             self.import_panel.set_analytics_status(tr('未取り込み'),tr('X Analytics CSVはまだ取り込まれていません。'))
@@ -249,7 +294,7 @@ class BackupUiMixin:
         except ValueError:
             pass
         self.import_panel.set_analytics_status(trf('累積 {0:,} posts · {1}まで', summary['cumulative_post_count'], end),
-            trf('保存済みの全投稿から、投稿ごとの最新成績で上位10%・NO.1を判定します。\n最新CSV: {0:,} posts · 照合 {1:,}\nCSV期間 {2} ～ {3}\n未照合 {4:,} posts\nファイル {5}\nCSV内のorganic / promoted区分: {6}', summary['post_count'], summary['matched_posts'], summary.get('period_start') or '不明', summary.get('period_end') or '不明', summary['unmatched_posts'], summary['source_filename'], 'あり' if summary['scope'] == 'organic_promoted_columns' else 'なし'))
+            trf('成績の比較対象：作品のある{0:,}投稿\n', summary['ranking_post_count'])+trf('ギャラリー全体の作品から、投稿ごとの最新成績で上位10%・NO.1を判定します。検索条件に左右されません。\n最新CSV: {0:,} posts · 照合 {1:,}\nCSV期間 {2} ～ {3}\n未照合 {4:,} posts\nファイル {5}\nCSV内のorganic / promoted区分: {6}', summary['post_count'], summary['matched_posts'], summary.get('period_start') or '不明', summary.get('period_end') or '不明', summary['unmatched_posts'], summary['source_filename'], 'あり' if summary['scope'] == 'organic_promoted_columns' else 'なし'))
 
     def open_analytics_csv_import(self):
         self.open_import()

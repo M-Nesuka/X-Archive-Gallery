@@ -1,20 +1,28 @@
 """Compact manual-tag controls for the gallery and artwork detail panel."""
-from .i18n import tr,trf,error_text
-import sqlite3
+from .i18n import tr,trf
 from urllib.parse import unquote
 from urllib.parse import quote
 from html import escape
 from .tag_cloud import TagCloud
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from .tag_colors import PALETTE, DEFAULT_COLOR, tag_colors
+from .tag_colors import DEFAULT_COLOR, tag_colors
 from .appearance import theme_color
-from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QPushButton,QLineEdit,
-    QMenu,QDialog,QListWidget,QListWidgetItem,QMessageBox,QLabel,QSizePolicy,QScrollArea,QComboBox)
-from .manual_tags import filter_manual_tags
+from PySide6.QtWidgets import QMenu
 
 
 class ManualTagUiMixin:
+    @staticmethod
+    def mark_tag_menu_action(action,label,selected):
+        # Qt can replace its native check indicator with the tag's color icon.
+        # Keep an explicit mark in the label so both are always visible.
+        action.setCheckable(True)
+        def update(checked):
+            action.setText(('✓  ' if checked else '')+label)
+            font=action.font();font.setBold(checked);action.setFont(font)
+        action.toggled.connect(update)
+        action.setChecked(selected)
+        update(selected)
+
     def manual_tag_icon(self,ident):
         swatch=QPixmap(14,14)
         swatch.fill(QColor(tag_colors(self.manual_colors.get(ident,DEFAULT_COLOR))[0]))
@@ -31,11 +39,30 @@ class ManualTagUiMixin:
         else:self.toggle_performance_filter(unquote(link.removeprefix('performance:')))
 
     def reload_manual_tags(self):
+        self.tags_manage_button.setEnabled(bool(self.library_id) and not self.aggregate_entries)
         self.manual_definitions=self.store.manual_tags(self.library_id) if self.library_id else {}
         self.manual_colors=self.store.manual_tag_colors(self.library_id) if self.library_id else {}
         self.manual_mapping=self.store.manual_tag_map(self.library_id) if self.library_id else {}
+        rules=self.store.post_tag_rules(self.library_id) if self.library_id else {}
+        self.manual_search_aliases={i:rule.get('aliases',[]) for i,rule in rules.items()}
         if self.aggregate_entries:
             self.manual_definitions,self.manual_colors,self.manual_mapping=self.combined_manual_tags()
+            self.manual_search_aliases={}
+            for entry,_raw,_status in self.load_job.bundles:
+                rules=self.store.post_tag_rules(entry['library_id'])
+                for ident,sources in self.combined_tag_sources.items():
+                    terms=rules.get(sources.get(entry['library_id']),{}).get('aliases',[])
+                    self.manual_search_aliases.setdefault(ident,[]).extend(terms)
+        self.manual_groups,self.manual_group_members=self.store.manual_tag_groups(self.library_id) if self.library_id else ({},{})
+        if self.aggregate_entries:
+            import hashlib
+            for entry,_raw,_status in self.load_job.bundles:
+                groups,members=self.store.manual_tag_groups(entry['library_id'])
+                for ident,sources in self.combined_tag_sources.items():
+                    local=sources.get(entry['library_id']);group=members.get(local)
+                    if group in groups:
+                        key='group:'+hashlib.sha256(groups[group].casefold().encode()).hexdigest()
+                        self.manual_groups.setdefault(key,groups[group]);self.manual_group_members.setdefault(ident,key)
         self.selected_manual_tags.intersection_update(self.manual_definitions)
         self.tag_filter_button.setText(trf('タグ · {0}', len(self.selected_manual_tags)) if self.selected_manual_tags else tr('タグ ▾'))
         names=[self.manual_definitions[i] for i in self.selected_manual_tags]
@@ -101,13 +128,7 @@ class ManualTagUiMixin:
 
     def manual_tag_menu(self, anchor, assign=False):
         menu=QMenu(anchor)
-        for ident,name in self.manual_definitions.items():
-            action=menu.addAction('#'+name)
-            action.setIcon(self.manual_tag_icon(ident))
-            action.setCheckable(True)
-            targets=self.selected_tag_assets()
-            action.setChecked(all(ident in self.manual_mapping.get(a.annotation_key,set()) for a in targets) if assign and targets else ident in self.selected_manual_tags)
-            action.triggered.connect(lambda checked,i=ident:self.attach_manual_tag(i,checked) if assign else self.toggle_manual_filter(i))
+        self.populate_manual_tag_menu(menu,assign=assign,targets=self.selected_tag_assets())
         if not self.manual_definitions:
             action=menu.addAction(tr('タグは未登録です'))
             action.setEnabled(False)
@@ -115,92 +136,38 @@ class ManualTagUiMixin:
         menu.addAction(tr('タグを登録・管理…'),self.manage_manual_tags)
         menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
 
+    def populate_manual_tag_menu(self, menu, *, assign=False, frequent=False, targets=None):
+        targets=list(targets or [])
+        counts=self.tag_usage_counts()
+        ordered=sorted(self.manual_definitions,key=lambda i:(-counts[i],self.manual_definitions[i].casefold()))
+        members=getattr(self,'manual_group_members',{})
+        groups=getattr(self,'manual_groups',{})
+        def add(parent,ident):
+            action=parent.addAction(self.manual_definitions[ident] if assign else '#'+self.manual_definitions[ident])
+            action.setIcon(self.manual_tag_icon(ident))
+            common=bool(targets) and all(ident in self.manual_mapping.get(a.annotation_key,set()) for a in targets)
+            if assign:
+                action.setCheckable(True);action.setChecked(common)
+            else:
+                self.mark_tag_menu_action(action,'#'+self.manual_definitions[ident],ident in self.selected_manual_tags)
+            action.setToolTip(trf('{0:,}作品に使用 · 付与済みならクリックで解除',counts[ident]) if assign else tr('クリックで絞り込み'))
+            if assign:action.triggered.connect(lambda _checked=False,i=ident,c=common:self.apply_tag_batch([i],not c,targets=targets))
+            else:action.triggered.connect(lambda _checked=False,i=ident:self.toggle_manual_filter(i))
+        ungrouped=[i for i in ordered if members.get(i) not in groups]
+        for ident in ungrouped[:10] if frequent else ungrouped:add(menu,ident)
+        populated={gid:[i for i in ordered if members.get(i)==gid] for gid in groups}
+        for gid in sorted(groups,key=lambda key:(-max((counts[i] for i in populated[key]),default=0),groups[key].casefold())):
+            if not populated[gid]:continue
+            child=menu.addMenu(groups[gid])
+            for ident in populated[gid]:add(child,ident)
+        if frequent and len(ungrouped)>10:
+            child=menu.addMenu(tr('その他のタグ'))
+            for ident in ungrouped[10:]:add(child,ident)
+
     def manage_manual_tags(self):
+        if self.importer.active or self.import_panel.analytics_busy:
+            self.toast(tr('アーカイブ取り込みが終わってから操作してください。'));return
         if not self.require_single_account() or not self.library_id:
             return
-        dialog=QDialog(self)
-        dialog.setWindowTitle(tr('手動タグの登録・管理'))
-        dialog.resize(390,410)
-        layout=QVBoxLayout(dialog)
-        info=QLabel(tr('登録タグはどの作品にも使えます。\nタグの削除は、このライブラリの画像すべてから外します。'))
-        info.setWordWrap(True)
-        layout.addWidget(info)
-        listing=QListWidget()
-        layout.addWidget(listing,1)
-        order=QComboBox()
-        order.addItem(tr('使用数順'),'usage')
-        order.addItem(tr('名前順'),'name')
-        layout.addWidget(order)
-        entry=QLineEdit()
-        entry.setPlaceholderText(tr('新しいタグ／変更後の名前'))
-        entry.setMaxLength(81)
-        layout.addWidget(entry)
-        colors=QComboBox()
-        colors.setObjectName('manualTagColor')
-        for key,(title,bg,_fg) in PALETTE.items():
-            swatch=QPixmap(16,16);swatch.fill(QColor(bg))
-            colors.addItem(QIcon(swatch),tr(title),key)
-        color_row=QHBoxLayout();color_row.addWidget(QLabel(tr('背景色')));color_row.addWidget(colors,1)
-        layout.addLayout(color_row)
-        colors.setToolTip(tr('新しいタグは選んだ色で登録します。登録済みタグを選ぶと、そのタグの色を変更できます。'))
-        def refresh():
-            self.reload_manual_tags()
-            self.apply_filters(preserve=True)
-            listing.clear()
-            counts=self.tag_usage_counts()
-            identifiers=sorted(self.manual_definitions,key=lambda i:(-counts[i],self.manual_definitions[i].casefold()) if order.currentData()=='usage' else self.manual_definitions[i].casefold())
-            for ident in identifiers:
-                name=self.manual_definitions[ident]
-                item=QListWidgetItem(f'{name}　{counts[ident]:,}')
-                item.setData(Qt.ItemDataRole.UserRole,ident)
-                item.setIcon(self.manual_tag_icon(ident))
-                # List labels use the theme's foreground/selection colors.
-                # Tag colors belong to swatches and chips, whose background is painted explicitly.
-                listing.addItem(item)
-        def edit(mode):
-            if mode in ('add','rename') and not entry.text().strip():
-                return
-            item=listing.currentItem()
-            try:
-                if mode=='add':
-                    self.store.create_manual_tag(self.library_id,entry.text(),colors.currentData())
-                elif item and mode=='rename':
-                    self.store.rename_manual_tag(self.library_id,item.data(Qt.ItemDataRole.UserRole),entry.text())
-                elif item and mode=='delete':
-                    if QMessageBox.question(dialog,tr('タグを削除'),trf('「{0}」を登録一覧と全画像から削除しますか？', item.text()))!=QMessageBox.StandardButton.Yes:
-                        return
-                    self.store.delete_manual_tag(self.library_id,item.data(Qt.ItemDataRole.UserRole))
-                else:
-                    return
-                entry.clear()
-                refresh()
-            except (ValueError,sqlite3.IntegrityError) as error:
-                QMessageBox.information(dialog,tr('タグ'),tr('同じ名前のタグがすでにあります。') if isinstance(error,sqlite3.IntegrityError) else error_text(error))
-        def selected(item,_old):
-            entry.setText(self.manual_definitions.get(item.data(Qt.ItemDataRole.UserRole),'') if item else '')
-            if item:
-                colors.blockSignals(True)
-                colors.setCurrentIndex(colors.findData(self.manual_colors.get(item.data(Qt.ItemDataRole.UserRole),DEFAULT_COLOR)))
-                colors.blockSignals(False)
-        def change_color():
-            item=listing.currentItem()
-            if not item:return
-            ident=item.data(Qt.ItemDataRole.UserRole)
-            self.store.set_manual_tag_color(self.library_id,ident,colors.currentData())
-            self.reload_manual_tags()
-            item.setIcon(self.manual_tag_icon(ident))
-            self.gallery.viewport().update()
-        listing.currentItemChanged.connect(selected)
-        colors.currentIndexChanged.connect(change_color)
-        order.currentIndexChanged.connect(refresh)
-        row=QHBoxLayout()
-        for title,mode in [(tr('登録'),'add'),(tr('名前変更'),'rename'),(tr('削除'),'delete')]:
-            b=QPushButton(title)
-            b.setAutoDefault(False)
-            b.setDefault(False)
-            b.clicked.connect(lambda _checked=False,m=mode:edit(m))
-            row.addWidget(b)
-        layout.addLayout(row)
-        entry.returnPressed.connect(lambda:edit('add'))
-        refresh()
-        dialog.exec()
+        from .tag_manager import TagManagerDialog
+        TagManagerDialog(self).exec()

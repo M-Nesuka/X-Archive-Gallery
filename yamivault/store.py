@@ -11,6 +11,7 @@ import uuid
 import zipfile
 from pathlib import Path
 from datetime import datetime, timezone
+from .post_tags import PostTagStoreMixin
 
 
 IMAGE_EXTENSIONS={'.jpg','.jpeg','.png','.webp','.gif','.bmp','.tif','.tiff','.avif','.heic','.heif','.jfif'}
@@ -29,7 +30,7 @@ def warning_media_path(data_dir,relative):
     return path
 
 
-class VaultStore:
+class VaultStore(PostTagStoreMixin):
     def __init__(self, directory: Path):
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -39,14 +40,14 @@ class VaultStore:
         self._analytics_rank_cache = {}
         try:
             version = self.db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 8:
+            if version > 9:
                 raise ValueError('このDBは新しい版のX Archive Galleryで作成されています。新しい版で開いてください。')
             if self.db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                 raise ValueError('アプリDBの整合性を確認できません。元DBは保持しています。設定フォルダーのbackupsから復元してください。')
-            if existed and version < 8:
+            if existed and version < 9:
                 backups=self.directory/'backups';backups.mkdir(parents=True,exist_ok=True)
                 stamp=datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
-                snapshot=sqlite3.connect(backups/f'before-schema-v{version}-to-v8-{stamp}.sqlite3')
+                snapshot=sqlite3.connect(backups/f'before-schema-v{version}-to-v9-{stamp}.sqlite3')
                 try:
                     self.db.backup(snapshot)
                     if snapshot.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
@@ -55,7 +56,7 @@ class VaultStore:
             # Reopening a current database must not acquire a schema write lock.
             # Import workers open independent connections while the gallery is
             # running; migrations and snapshots remain limited to older schemas.
-            if version < 8:
+            if version < 9:
                 self._initialize_schema()
             self.db.execute('PRAGMA journal_mode=WAL')
         except Exception:
@@ -141,12 +142,25 @@ class VaultStore:
                 library_id TEXT NOT NULL, sha256 TEXT NOT NULL, last_seen TEXT NOT NULL,
                 view_count INTEGER NOT NULL, PRIMARY KEY(library_id,sha256));
             CREATE INDEX IF NOT EXISTS views_by_time ON asset_views(library_id,last_seen);
-            PRAGMA user_version=8;
+            CREATE TABLE IF NOT EXISTS post_text (
+                library_id TEXT NOT NULL, post_id TEXT NOT NULL, text TEXT NOT NULL,
+                hashtags_json TEXT NOT NULL, PRIMARY KEY(library_id,post_id));
+            CREATE TABLE IF NOT EXISTS post_asset_tags (
+                library_id TEXT NOT NULL, sha256 TEXT NOT NULL, tag_id TEXT NOT NULL,
+                PRIMARY KEY(library_id,sha256,tag_id));
+            CREATE INDEX IF NOT EXISTS post_asset_tags_by_tag ON post_asset_tags(library_id,tag_id);
+            CREATE TABLE IF NOT EXISTS post_tag_suppressions (
+                library_id TEXT NOT NULL, sha256 TEXT NOT NULL, tag_id TEXT NOT NULL,
+                PRIMARY KEY(library_id,sha256,tag_id));
+            PRAGMA user_version=9;
             COMMIT;
         ''')
         self.db.commit()
 
     def library(self, root):
+        from .library_identity import resolve_library
+        known=resolve_library(self,root)
+        if known:return known
         root = str(Path(root).resolve()).casefold()
         row = self.db.execute('SELECT library_id FROM libraries WHERE root=?', (root,)).fetchone()
         if row:
@@ -200,6 +214,9 @@ class VaultStore:
                     self.db.execute('INSERT OR IGNORE INTO manual_asset_tags '
                         'SELECT library_id,?,tag_id FROM manual_asset_tags WHERE library_id=? AND sha256=?',
                         (new_sha,library_id,old_sha))
+                    for table in ('post_asset_tags','post_tag_suppressions'):
+                        self.db.execute(f'INSERT OR IGNORE INTO {table} SELECT library_id,?,tag_id FROM {table} WHERE library_id=? AND sha256=?',
+                                        (new_sha,library_id,old_sha))
                     self.db.execute('INSERT OR IGNORE INTO hidden_assets '
                         'SELECT library_id,?,hidden_at FROM hidden_assets WHERE library_id=? AND sha256=?',
                         (new_sha,library_id,old_sha))
@@ -209,13 +226,99 @@ class VaultStore:
                         last_seen=MAX(asset_views.last_seen,excluded.last_seen),
                         view_count=asset_views.view_count+excluded.view_count''', (new_sha,library_id,old_sha))
                     if old_sha not in active_hashes:
-                        for table in ('manual_asset_tags','hidden_assets','asset_views'):
+                        for table in ('manual_asset_tags','post_asset_tags','post_tag_suppressions','hidden_assets','asset_views'):
                             self.db.execute(f'DELETE FROM {table} WHERE library_id=? AND sha256=?',(library_id,old_sha))
                 self.db.execute('INSERT INTO settings VALUES (?,?)',(marker,'true'))
         return len(pending)
 
     def manual_tag_colors(self, library_id):
         return dict(self.db.execute('SELECT tag_id,color FROM manual_tag_colors WHERE library_id=?', (library_id,)))
+
+    def manual_tag_groups(self, library_id):
+        value = self.get('manual_tag_groups:'+str(library_id), {})
+        definitions = self.manual_tags(library_id)
+        groups = value.get('groups', {}) if isinstance(value,dict) else {}
+        members = value.get('members', {}) if isinstance(value,dict) else {}
+        groups = {key:name for key,name in groups.items() if isinstance(name,str)}
+        return groups,{tag:group for tag,group in members.items() if tag in definitions and group in groups}
+
+    def _write_tag_groups(self, library_id, groups, members):
+        self.db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',
+            ('manual_tag_groups:'+str(library_id),json.dumps({'groups':groups,'members':members},ensure_ascii=False)))
+
+    def save_tag_group(self, library_id, name, ident=None):
+        from .manual_tags import normalize_tag
+        name = normalize_tag(name)
+        groups,members = self.manual_tag_groups(library_id)
+        if ident is not None and ident not in groups:
+            raise ValueError('選んだグループが見つかりません。')
+        if any(key!=ident and value.casefold()==name.casefold() for key,value in groups.items()):
+            raise ValueError('同じ名前のグループがすでにあります。')
+        ident = ident or uuid.uuid4().hex
+        groups[ident] = name
+        with self.db:self._write_tag_groups(library_id,groups,members)
+        return ident
+
+    def delete_tag_group(self, library_id, ident):
+        groups,members = self.manual_tag_groups(library_id)
+        groups.pop(ident,None)
+        members = {tag:group for tag,group in members.items() if group!=ident}
+        with self.db:self._write_tag_groups(library_id,groups,members)
+
+    def move_manual_tags_to_group(self, library_id, identifiers, group=''):
+        identifiers=set(identifiers)
+        definitions=self.manual_tags(library_id)
+        groups,members=self.manual_tag_groups(library_id)
+        if group and group not in groups:raise ValueError('移動先のグループが見つかりません。')
+        if not identifiers.issubset(definitions):raise ValueError('選択したタグが見つかりません。選び直してください。')
+        changed=sum(members.get(ident,'')!=group for ident in identifiers)
+        if changed:
+            for ident in identifiers:
+                if group:members[ident]=group
+                else:members.pop(ident,None)
+            with self.db:self._write_tag_groups(library_id,groups,members)
+        return changed
+
+    def save_manual_tag_details(self, library_id, name, color, group='', ident=None, post_rule=None):
+        """Explicit atomic save; UI drafts never mutate other selected tags."""
+        from .manual_tags import normalize_tag
+        from .tag_colors import PALETTE
+        name = normalize_tag(name)
+        if post_rule is not None:
+            from .post_tags import names
+            post_rule=dict(post_rule,aliases=names(post_rule.get('aliases',[])),created=False,disabled=False,keyword=False)
+        definitions = self.manual_tags(library_id)
+        groups,members = self.manual_tag_groups(library_id)
+        if color not in PALETTE:raise ValueError('一覧からタグの背景色を選んでください。')
+        if group and group not in groups:raise ValueError('選んだグループが見つかりません。')
+        if ident is not None and ident not in definitions:raise ValueError('登録されていないタグです。')
+        if any(key!=ident and value.casefold()==name.casefold() for key,value in definitions.items()):
+            raise ValueError('同じ名前のタグがすでにあります。')
+        if ident is not None and definitions[ident]!=name:
+            from .post_tags import names
+            previous_rule=self.post_tag_rules(library_id).get(ident,{})
+            post_rule={**previous_rule,**(post_rule or {}),'created':False,'disabled':False,'keyword':False}
+            post_rule['aliases']=names(post_rule.get('aliases',[])+[definitions[ident]])
+        ident = ident or uuid.uuid4().hex
+        with self.db:
+            self.db.execute('INSERT INTO manual_tags VALUES (?,?,?,?) '
+                'ON CONFLICT(library_id,tag_id) DO UPDATE SET name=excluded.name,name_key=excluded.name_key',
+                (library_id,ident,name,name.casefold()))
+            self.db.execute('INSERT INTO manual_tag_colors VALUES (?,?,?) '
+                'ON CONFLICT(library_id,tag_id) DO UPDATE SET color=excluded.color',(library_id,ident,color))
+            if group:members[ident]=group
+            else:members.pop(ident,None)
+            self._write_tag_groups(library_id,groups,members)
+            if post_rule is not None:
+                rules=self.post_tag_rules(library_id)
+                rules[ident]=dict(rules.get(ident,{}),**post_rule)
+                self._write_post_setting('post_tag_rules:'+library_id,rules)
+                options=self.post_tag_options(library_id)
+                old_name=definitions.get(ident,name).casefold()
+                if any(k['name'].casefold()==old_name for k in options['keywords']):
+                    options['keywords']=[k for k in options['keywords'] if k['name'].casefold()!=old_name]
+                    self._write_post_setting('post_tag_options:'+library_id,options)
+        return ident
 
     def set_manual_tag_color(self, library_id, ident, color):
         from .tag_colors import PALETTE
@@ -226,6 +329,19 @@ class VaultStore:
         with self.db:
             self.db.execute('INSERT INTO manual_tag_colors VALUES (?,?,?) '
                 'ON CONFLICT(library_id,tag_id) DO UPDATE SET color=excluded.color', (library_id,ident,color))
+
+    def bulk_manual_tag_colors(self,library_id,identifiers,color):
+        from .tag_colors import PALETTE
+        identifiers=set(identifiers)
+        if color not in PALETTE:raise ValueError('一覧からタグの背景色を選んでください。')
+        if not identifiers.issubset(self.manual_tags(library_id)):raise ValueError('登録されていないタグが含まれます。')
+        colors=self.manual_tag_colors(library_id)
+        changed=sum(colors.get(ident)!=color for ident in identifiers)
+        with self.db:
+            self.db.executemany('INSERT INTO manual_tag_colors VALUES (?,?,?) '
+                'ON CONFLICT(library_id,tag_id) DO UPDATE SET color=excluded.color',
+                [(library_id,ident,color) for ident in identifiers if colors.get(ident)!=color])
+        return changed
 
     def asset_views(self,library_id):
         return {sha:{'last_seen':datetime.fromisoformat(seen).timestamp(),'view_count':count}
@@ -241,7 +357,10 @@ class VaultStore:
 
     def manual_tag_map(self, library_id):
         result = {}
-        for sha, ident in self.db.execute('SELECT sha256,tag_id FROM manual_asset_tags WHERE library_id=?', (library_id,)):
+        for sha, ident in self.db.execute('''SELECT sha256,tag_id FROM manual_asset_tags WHERE library_id=?
+            UNION SELECT a.sha256,a.tag_id FROM post_asset_tags a WHERE a.library_id=?
+            AND NOT EXISTS (SELECT 1 FROM post_tag_suppressions s
+                WHERE s.library_id=a.library_id AND s.sha256=a.sha256 AND s.tag_id=a.tag_id)''', (library_id,library_id)):
             result.setdefault(sha, set()).add(ident)
         return result
 
@@ -268,16 +387,36 @@ class VaultStore:
         if not self.db.execute('SELECT 1 FROM manual_tags WHERE library_id=? AND tag_id=?', (library_id,ident)).fetchone():
             raise ValueError('登録されていないタグです。')
         with self.db:
+            self.post_tag_removed(library_id,sha,ident,enabled)
             if enabled:
                 self.db.execute('INSERT OR IGNORE INTO manual_asset_tags VALUES (?,?,?)', (library_id,sha,ident))
             else:
                 self.db.execute('DELETE FROM manual_asset_tags WHERE library_id=? AND sha256=? AND tag_id=?', (library_id,sha,ident))
 
     def delete_manual_tag(self, library_id, ident):
+        return self.delete_manual_tags(library_id,[ident])
+
+    def delete_manual_tags(self, library_id, identifiers):
+        definitions=self.manual_tags(library_id)
+        identifiers=set(identifiers)
+        if not identifiers <= set(definitions):raise ValueError('登録されていないタグが含まれます。')
+        groups,members=self.manual_tag_groups(library_id)
+        options=self.post_tag_options(library_id)
+        rules=self.post_tag_rules(library_id)
+        removed_terms=[term for ident in identifiers for term in [definitions[ident]]+rules.get(ident,{}).get('aliases',[])]
+        options['excluded']=list(dict.fromkeys(options['excluded']+removed_terms))
+        deleted_names={definitions[i].casefold() for i in identifiers}
+        options['keywords']=[k for k in options.get('keywords',[]) if k['name'].casefold() not in deleted_names]
+        rules=self.post_tag_rules(library_id)
+        for ident in identifiers:members.pop(ident,None);rules.pop(ident,None)
         with self.db:
-            self.db.execute('DELETE FROM manual_asset_tags WHERE library_id=? AND tag_id=?', (library_id,ident))
-            self.db.execute('DELETE FROM manual_tags WHERE library_id=? AND tag_id=?', (library_id,ident))
-            self.db.execute('DELETE FROM manual_tag_colors WHERE library_id=? AND tag_id=?', (library_id,ident))
+            self._write_post_setting('post_tag_options:'+library_id,options)
+            self._write_post_setting('post_tag_rules:'+library_id,rules)
+            rows=[(library_id,i) for i in identifiers]
+            for table in ('post_asset_tags','post_tag_suppressions','manual_asset_tags','manual_tags','manual_tag_colors'):
+                self.db.executemany(f'DELETE FROM {table} WHERE library_id=? AND tag_id=?',rows)
+            self._write_tag_groups(library_id,groups,members)
+        return len(identifiers)
 
     def bulk_manual_tags(self,library_id,hashes,identifiers,enabled=True):
         hashes=set(hashes)
@@ -285,14 +424,16 @@ class VaultStore:
         if not identifiers <= set(self.manual_tags(library_id)):
             raise ValueError('登録されていないタグが含まれます。')
         changes=0
+        effective=self.manual_tag_map(library_id)
         with self.db:
             for sha in hashes:
                 for ident in identifiers:
+                    self.post_tag_removed(library_id,sha,ident,enabled)
                     if enabled:
                         cursor=self.db.execute('INSERT OR IGNORE INTO manual_asset_tags VALUES (?,?,?)',(library_id,sha,ident))
                     else:
                         cursor=self.db.execute('DELETE FROM manual_asset_tags WHERE library_id=? AND sha256=? AND tag_id=?',(library_id,sha,ident))
-                    changes+=cursor.rowcount
+                    changes+=int((ident not in effective.get(sha,set())) if enabled else (ident in effective.get(sha,set())))
         return {'unique_images':len(hashes),'tag_count':len(identifiers),'changed':changes,
                 'unchanged':len(hashes)*len(identifiers)-changes}
 
@@ -489,6 +630,11 @@ class VaultStore:
             if self.get('last_backup_library')==library_id:
                 self.db.execute('DELETE FROM settings WHERE key=?',('last_backup_library',))
             self.db.execute('DELETE FROM settings WHERE key=?',('frequent_tags:'+str(library_id),))
+            self.db.execute('DELETE FROM settings WHERE key=?',('manual_tag_groups:'+str(library_id),))
+            for key in ('post_tag_options:','post_tag_rules:','post_tag_cache_v1:','post_tag_cache_v2:'):
+                self.db.execute('DELETE FROM settings WHERE key=?',(key+str(library_id),))
+            for table in ('post_text','post_asset_tags','post_tag_suppressions'):
+                self.db.execute(f'DELETE FROM {table} WHERE library_id=?',(library_id,))
             self.db.execute('DELETE FROM settings WHERE key LIKE ?',('attachment-alias:'+str(library_id)+':%',))
             self.db.execute('DELETE FROM import_jobs WHERE root=? COLLATE NOCASE',(root,))
             self.db.execute('DELETE FROM warning_assets WHERE library_id=?',(library_id,))
@@ -512,6 +658,15 @@ class VaultStore:
             path=warning_media_path(self.directory,relative)
             path.unlink(missing_ok=True)
 
+    def clear_first_setup_settings_if_empty(self):
+        """A last-library reset must not silently seed the next import with old rules."""
+        roots=[Path(row[0]) for row in self.db.execute('SELECT root FROM libraries')]
+        if any((root/'.system/catalog.sqlite3').is_file() for root in roots):return False
+        with self.db:
+            self.db.executemany('DELETE FROM settings WHERE key=?',
+                [(key,) for key in ('post_tag_defaults','first_setup_draft','library_root')])
+        return True
+
     def analytics_hash_imported(self, library_id, file_sha256):
         return self.db.execute('''SELECT 1 FROM analytics_imports
             WHERE library_id=? AND file_sha256=? LIMIT 1''',(library_id,file_sha256)).fetchone() is not None
@@ -526,15 +681,21 @@ class VaultStore:
                         'post_count','matched_posts','unmatched_posts','scope'),query))
         cohort=self._current_analytics_ranking(library_id)
         result['cumulative_post_count']=len(cohort['posts'])
+        result['ranking_post_count']=len(cohort['ranked_posts'])
+        result['cumulative_import_count']=self.db.execute('SELECT count(*) FROM analytics_imports WHERE library_id=?',(library_id,)).fetchone()[0]
+        result['cumulative_matched_posts']=self.db.execute('SELECT count(DISTINCT post_id) FROM analytics_asset_links WHERE library_id=?',(library_id,)).fetchone()[0]
+        result['cumulative_unmatched_posts']=result['cumulative_post_count']-result['cumulative_matched_posts']
         dates=[r['posted_at'] for r in cohort['posts'].values() if r['posted_at']]
         result['cumulative_period_start']=min(dates,default='')
         result['cumulative_period_end']=max(dates,default='')
-        result['ranking_scope']='latest_saved_posts'
+        result['ranking_scope']='gallery_artworks'
         return result
 
     def _current_analytics_ranking(self, library_id):
-        """Rank one library's accumulated posts using one latest snapshot per ID.
+        """Rank all linked gallery posts using one latest snapshot per ID.
 
+        Gallery membership comes from unfiltered catalog links, never UI filters.
+        Unlinked Analytics rows remain saved but cannot displace gallery awards.
         Historical CSV rows and their original tags remain untouched. The current
         view is derived from persisted metrics, so existing v8 databases need no
         migration or reimport. Cache invalidation covers this connection's writes
@@ -559,7 +720,11 @@ class VaultStore:
         for values in query:
             record=dict(zip(names,values));record.pop('snapshot_rank')
             posts[record['post_id']]=record
-        tags=performance_tags(list(posts.values()))
+        gallery_posts={r[0] for r in self.db.execute(
+            'SELECT DISTINCT post_id FROM analytics_asset_links WHERE library_id=?',(library_id,))}
+        ranked_posts={pid:row for pid,row in posts.items() if pid in gallery_posts}
+        tags={pid:[] for pid in posts}
+        tags.update(performance_tags(list(ranked_posts.values())))
         records={}
         for post_id,items in tags.items():
             items.sort(key=lambda t:(t['tag_type']!='top1',t['metric_key']))
@@ -567,7 +732,7 @@ class VaultStore:
                 'tag_badges':[{'tag_name':t['tag_name'],'tag_type':t['tag_type']} for t in items],
                 'high_count':sum(t['tag_type']=='high' for t in items),
                 'top1_count':sum(t['tag_type']=='top1' for t in items)}
-        result={'posts':posts,'tags':tags,'records':records}
+        result={'posts':posts,'ranked_posts':ranked_posts,'tags':tags,'records':records}
         self._analytics_rank_cache[library_id]=(epoch,result)
         return result
 
@@ -580,8 +745,8 @@ class VaultStore:
             return None
         result=dict(row)
         result['tags']=list(cohort['records'][str(post_id)]['tags'])
-        result['ranking_post_count']=len(cohort['posts'])
-        result['ranking_scope']='latest_saved_posts'
+        result['ranking_post_count']=len(cohort['ranked_posts'])
+        result['ranking_scope']='gallery_artworks'
         result['matched_assets']=self.db.execute('''SELECT count(*) FROM analytics_asset_links
             WHERE import_id=? AND library_id=? AND post_id=?''',
             (result['import_id'],library_id,str(post_id))).fetchone()[0]

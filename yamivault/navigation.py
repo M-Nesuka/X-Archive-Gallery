@@ -121,13 +121,15 @@ class NavigationMixin:
             action=menu.addAction(title);action.setCheckable(True);action.setChecked(checked);action.triggered.connect(callback)
         manual=menu.addMenu(tr('手動タグ'))
         for ident,name in self.manual_definitions.items():
-            action=manual.addAction('#'+name);action.setCheckable(True);action.setChecked(ident in self.selected_manual_tags)
+            action=manual.addAction('#'+name)
+            self.mark_tag_menu_action(action,'#'+name,ident in self.selected_manual_tags)
             action.setIcon(self.manual_tag_icon(ident))
             action.triggered.connect(lambda _checked=False,i=ident:self.toggle_manual_filter(i))
         performance=menu.addMenu(tr('X成績タグ'))
         names=sorted({badge['tag_name'] for record in self.performance_by_post.values() for badge in record.get('tag_badges',[])})
         for name in names:
-            action=performance.addAction(tr(name));action.setCheckable(True);action.setChecked(name in self.selected_performance_tags)
+            action=performance.addAction(tr(name))
+            self.mark_tag_menu_action(action,tr(name),name in self.selected_performance_tags)
             action.triggered.connect(lambda _checked=False,n=name:self.toggle_performance_filter(n))
         if not names:performance.addAction(tr('成績タグはまだありません')).setEnabled(False)
         menu.addSeparator();menu.addAction(tr('手動タグを登録・管理…'),self.manage_manual_tags)

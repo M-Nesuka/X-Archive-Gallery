@@ -1,4 +1,4 @@
-# Build X Archive Gallery v1.5.0
+# Build X Archive Gallery v1.6.0
 
 Use Windows x64 and Python 3.12. Every application build script referenced here
 is included in this source distribution. No internal `tests`, `engine_tests`,
@@ -23,7 +23,7 @@ wraps it in an EXE. The source allowlist rejects personal paths and private data
 
 ## Rebuild the poster executable
 
-Extract `XArchiveGallery_v1.5.0_ThirdPartySources.zip` from the same Release.
+Extract `XArchiveGallery_v1.6.0_ThirdPartySources.zip` from the same Release.
 It supplies the exact FFmpeg 7.1.5, dav1d 1.5.1, zlib 1.3.1 source archives and
 the matching build-only patch. The `tools/build_poster_ffmpeg.py` script applies
 the response-file fix and converts generated paths for Windows GNU Make.

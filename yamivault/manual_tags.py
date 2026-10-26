@@ -10,9 +10,13 @@ def normalize_tag(name):
     return name
 
 
-def filter_manual_tags(assets, query, selected, definitions, mapping):
+def filter_manual_tags(assets, query, selected, definitions, mapping, aliases=None):
     required = set(selected)
+    aliases=aliases or {}
     keys = {name.casefold(): ident for ident,name in definitions.items()}
+    for ident,terms in aliases.items():
+        for term in terms:keys.setdefault(term.casefold(),ident)
+    search_names={ident:' '.join([name]+list(aliases.get(ident,[]))) for ident,name in definitions.items()}
     missing = False
     pattern = r'#(?:"([^"]+)"|(\S+))'
     for match in re.finditer(pattern, query):
@@ -26,4 +30,4 @@ def filter_manual_tags(assets, query, selected, definitions, mapping):
     if missing:
         return []
     return [a for a in assets if required <= mapping.get(a.annotation_key,set())
-            and (not text or text in (' '.join([a.post_id,a.filename] + [definitions[i] for i in mapping.get(a.annotation_key,set()) if i in definitions])).casefold())]
+            and (not text or text in (' '.join([a.post_id,a.filename] + [search_names[i] for i in mapping.get(a.annotation_key,set()) if i in search_names])).casefold())]

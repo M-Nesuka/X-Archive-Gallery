@@ -1,8 +1,9 @@
 """Package the exact third-party archives supplied with the matching app Release."""
 from pathlib import Path
-import argparse,hashlib,json,zipfile
+import argparse,hashlib,json,zipfile,runpy
 
 ROOT=Path(__file__).resolve().parents[1]
+VERSION=runpy.run_path(str(ROOT/'yamivault/version.py'))['__version__']
 parser=argparse.ArgumentParser()
 parser.add_argument('--sources',type=Path,required=True,help='Folder containing original archives listed in source-manifest.json')
 parser.add_argument('--output',type=Path,default=ROOT/'delivery')
@@ -19,10 +20,10 @@ for row in manifest['sources']:
     path=args.sources/row['file']
     with path.open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==row['sha256'],row['file']
     inputs[Path(row['source_path'])]=path
-readme='''# Matching third-party sources — X Archive Gallery v1.5.0
+readme=f'''# Matching third-party sources — X Archive Gallery v{VERSION}
 
 Keep this asset publicly downloadable alongside the Windows app ZIP in the same
-v1.5.0 GitHub Release, at no extra cost or restricted access.
+v{VERSION} GitHub Release, at no extra cost or restricted access.
 These are original upstream sources, not M.Nesuka application code. Their own
 copyright notices and licenses apply. The application Source Available license
 does not apply to this bundle. The dedicated poster build recipe and build-only
@@ -46,7 +47,7 @@ compiler installers. Library replacement rights and instructions are provided
 in the app's licenses/LIBRARY_REPLACEMENT.md.
 '''
 args.output.mkdir(parents=True,exist_ok=True)
-archive=args.output/'XArchiveGallery_v1.5.0_ThirdPartySources.zip'
+archive=args.output/f'XArchiveGallery_v{VERSION}_ThirdPartySources.zip'
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_STORED) as z:
     z.writestr('README.md',readme)
     for name,path in sorted(inputs.items()):z.write(path,name.as_posix())
