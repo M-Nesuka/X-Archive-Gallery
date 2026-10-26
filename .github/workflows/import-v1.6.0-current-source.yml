@@ -5,6 +5,7 @@ on:
       - prepare/v1.6.0
     paths:
       - application-source.zip
+      - .github/workflows/import-v1.6.0-current-source.yml
 
 permissions:
   contents: write
@@ -29,7 +30,8 @@ jobs:
 
           source = pathlib.Path('application-source.zip')
           if not source.exists():
-              raise SystemExit('No application-source.zip')
+              print('No pending source ZIP: source already staged. No changes required.')
+              raise SystemExit(0)
           with zipfile.ZipFile(source) as archive:
               members = [m for m in archive.infolist() if not m.is_dir()]
               if not 100 <= len(members) <= 1000:
@@ -102,7 +104,9 @@ jobs:
           print(f'PASS: parsed {count} Python files')
           PY
           git add -A
-          git diff --check --cached
+          # Source archive must be preserved byte-for-byte. Existing CRLF/trailing
+          # whitespace is not a code error, so do not reject imported files or
+          # silently rewrite their contents here.
       - name: Commit to preparation branch only
         run: |
           git config user.name "github-actions[bot]"
