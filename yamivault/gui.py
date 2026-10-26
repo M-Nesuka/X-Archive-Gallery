@@ -296,7 +296,9 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         remembered_root = self.store.get('library_root')
         from .accounts import startup_root
         if not initial_root:remembered_root=startup_root(self.store,remembered_root)
-        self.library_configured = bool(initial_root or remembered_root)
+        candidate_root=initial_root or remembered_root
+        self._startup_library_problem=bool(candidate_root and not (Path(candidate_root)/'.system/catalog.sqlite3').is_file())
+        self.library_configured = bool(candidate_root) and not self._startup_library_problem
         self.root = Path(initial_root or remembered_root or DEFAULT_ROOT)
         self.library_id = None
         self.account_scope=''
@@ -309,6 +311,7 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
                     self.aggregate_entries=group['entries'];self.account_scope=group['key'];break
         self.manual_definitions = {}
         self.manual_mapping = {}
+        self.manual_search_aliases = {}
         self.selected_manual_tags = set()
         self.selected_performance_tags=set()
         self.performance_mode=''
@@ -342,6 +345,7 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         self.image_error = None
         self.image_token = 0
         self.image_jobs = {}
+        self.pending_image_request = None
         self.pending_copy = None
         self.dimensions_pending = {}
         self.loading = False
@@ -351,7 +355,7 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         self.jobs = QThreadPool(self)
         self.jobs.setMaxThreadCount(2)
         self.setWindowTitle(f'X Archive Gallery — v{__version__}')
-        self.setMinimumSize(880, 640)
+        self.setMinimumSize(880, 480)
         self.resize(1380, 930)
         self.setStyleSheet(STYLE)
         self.importer = ImportController(self.store,self)
@@ -379,6 +383,7 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         self.importer.activity.connect(self.import_activity)
         self.importer.changed.connect(self.import_changed)
         self.importer.completed.connect(self.import_completed)
+        self._setup_draft_restored=False
         QTimer.singleShot(50, self.refresh)
 
     def build_ui(self):
@@ -428,13 +433,15 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         self.refresh_button.setAccessibleName(tr('ライブラリ更新'))
         top_row.addWidget(self.refresh_button)
         self.import_button = button(tr('アーカイブを取り込む'),self.toggle_import_panel)
-        top_row.addWidget(self.import_button)
+        self.import_button.hide()
         settings = QToolButton()
         settings.setText('•••')
         settings.setToolTip(tr('ライブラリとアプリの設定'))
         settings.setAccessibleName(tr('ライブラリとアプリの設定'))
         settings.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(settings)
+        menu.addAction(tr('アーカイブを取り込む'),self.open_import)
+        menu.addAction(tr('Analytics CSVを追加'),lambda:(self.open_import(),self.import_panel.analytics_toggle.setChecked(True)))
         menu.addAction(tr('既存のバックアップを開く…'), self.choose_library)
         menu.addAction(tr('新しくバックアップを作る…'), self.open_import)
         menu.addAction(tr('不具合報告用ログを保存…'), self.export_diagnostics)
@@ -448,7 +455,12 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         self.build_language_menu(menu)
         menu.addSeparator()
         menu.addAction(tr('使い方'), self.show_help)
+        menu.addAction(tr('かんたんガイド'),self.show_quick_guide)
         menu.addAction(tr('ライセンス・配布資料'), self.open_distribution_materials)
+        menu.addSeparator()
+        self.reset_backup_action=menu.addAction(tr('保存した作品をすべて削除…'),self.reset_backup)
+        self.reset_backup_action.setToolTip(tr('選択中のバックアップ内の作品・管理情報をすべて削除します'))
+        menu.aboutToShow.connect(self.update_reset_backup_action)
         settings.setMenu(menu)
         top_row.addWidget(settings)
         layout.addWidget(self.app_header)
@@ -485,7 +497,9 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         self.all_button.setChecked(True)
         self.tag_filter_button = button(tr('タグ ▾'),lambda:self.manual_tag_menu(self.tag_filter_button))
         self.tag_filter_button.hide()
-        self.help_button=button(tr('使い方'),self.show_help,tip=tr('初めての方はこちら。見る・探す・タグ付けを案内します'))
+        self.tags_manage_button=button(tr('タグを管理'),self.manage_manual_tags)
+        self.tags_manage_button.setEnabled(False);tools.addWidget(self.tags_manage_button)
+        self.help_button=button(tr('使い方'),self.show_quick_guide,tip=tr('初めての方はこちら。見る・探す・タグ付けを案内します'))
         tools.addWidget(self.help_button)
         tools.addStretch()
         self.toolbar_filters = QWidget()
@@ -952,6 +966,8 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
             self.library_label.setText(tr('ライブラリ未選択'))
             self.gallery.empty_text = tr('あなたの作品を、ここに。\n右の①から始めましょう。\nアーカイブZIPだけで使えます。\n迷ったら「使い方」を開いてください。')
             self.gallery.viewport().update()
+            if self._startup_library_problem:
+                self.import_panel.combined_message=tr('以前のライブラリが見つかりません。保存済みの作品を開くか、新しい保存先を選んで始められます。作品・タグなどの記録はそのまま残っています。')
             QTimer.singleShot(0,self.open_import)
             return
         if self.loading:
@@ -996,11 +1012,16 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
             self.rebuild_account_menu()
             log.warning('Library load failed')
             self.progress.setText(tr('ライブラリを確認してください'))
-            if not self.assets:
-                self.gallery.empty_text = tr('ライブラリを開けませんでした。\n右上の ••• から「既存のバックアップを開く」を選んでください。')
-                self.gallery.viewport().update()
             from .diagnostics import friendly_error
-            QMessageBox.warning(self, tr('ライブラリを開けません'), friendly_error(ValueError(error),tr('ライブラリの読み込み')))
+            explanation=friendly_error(ValueError(error),tr('ライブラリの読み込み'))
+            if not self.assets:
+                # Failed startup must leave an actionable main screen, not an
+                # empty gallery behind a blocking warning. Keep all saved metadata.
+                self.library_configured=False
+                self.import_panel.combined_message=explanation+'\n'+tr('「保存済みの作品を開く…」で選び直すか、新しい保存先とZIPで始められます。')
+                self.open_import()
+            else:
+                QMessageBox.warning(self, tr('ライブラリを開けません'), explanation)
             return
         root_changed = self.root.resolve() != self.proposed_root.resolve() or self._account_changed
         self._account_changed=False
@@ -1087,7 +1108,13 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
                     self.discovery_panel.show()
         self.thumbs.configure(self.assets, self.root, self.asset_source_path)
         self.gallery.request_visible()
-        if self.import_panel.onboarding and self.importer.phase=='idle':self.close_import()
+        if self.assets:
+            if self.import_panel.onboarding and not self.import_panel.awaiting_analytics and not self.import_panel.analytics_busy and self.importer.phase in ('idle','complete','warnings'):
+                first_import=self.importer.phase in ('complete','warnings')
+                self.close_import();self.store.set('first_setup_draft',{})
+                if first_import:QTimer.singleShot(0,lambda:self.toast(tr('Analyticsも後から追加できます（任意）。「…」からCSVを選べます。')))
+        elif self.importer.phase=='idle':
+            self.open_import()
         self.toast(trf('{0:,}件の保存記録を読み込みました', len(self.assets)))
         if self.aggregate_entries and self.load_job.unavailable:
             self.toast(trf('{0}個の保存先を開けません。接続できたアカウントだけを表示しています。', len(self.load_job.unavailable)))
@@ -1134,7 +1161,8 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         filtered = filter_assets(source_assets, self.year.currentData() or '', self.month.currentData() or '',
                                  '', self.favorites if self.favorites_button.isChecked() and not self.hidden_only else None,
                                  self.media_kind.currentData() or '')
-        filtered = filter_manual_tags(filtered,self.search.text(),self.selected_manual_tags,self.manual_definitions,self.manual_mapping)
+        filtered = filter_manual_tags(filtered,self.search.text(),self.selected_manual_tags,self.manual_definitions,self.manual_mapping,
+                                      self.manual_search_aliases)
         def has_performance(a):
             record=self.performance_by_post.get(a.performance_key,{})
             if self.performance_mode=='high' and not record.get('high_count',0):return False
@@ -1437,6 +1465,12 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         if hasattr(self,'fullscreen_controls') and self.immersive_active():
             self.position_fullscreen_controls()
 
+    def update_reset_backup_action(self):
+        busy=(self.importer.active or self.loading or self.import_panel.analytics_busy
+              or self.import_panel.preview_busy)
+        self.reset_backup_action.setEnabled(not busy and not self.aggregate_entries
+            and (self.root/'.system'/'catalog.sqlite3').is_file())
+
     def reset_backup(self):
         if not self.require_single_account():return
         if self.importer.active or self.loading or self.import_panel.analytics_busy or self.import_panel.preview_busy:
@@ -1465,6 +1499,10 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
             from .library_reset import clear_backup
             clear_backup(self.root)
             self.store.clear_import_state(self.root,self.library_id)
+            if self.store.clear_first_setup_settings_if_empty():
+                self.library_configured=False
+                self.import_panel.pending_destination=None
+                self.import_panel._saved_setup_draft=None
             self.favorites=set()
             self.update_favorites_count()
             self.hidden_hashes=set()
@@ -1661,7 +1699,7 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
     def select_asset(self, asset):
         if not asset:
             return
-        self.close_import() if self.import_panel.onboarding else self.import_panel.hide()
+        if self.import_panel.onboarding:self.close_import()
         self.discovery_panel.hide()
         unchanged = self.current and self.current.identity == asset.identity
         self.current = asset
@@ -1713,7 +1751,7 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
             return
         self.update_manual_details()
         self.performance_summary.setToolTip(
-            trf('このライブラリの保存済み {0:,} 投稿で判定。\n同じ投稿は最新の取り込み値を使用します。CSVにない過去投稿も比較対象です。\nこの投稿の取り込み日時: {1}', record['ranking_post_count'], record['imported_at']))
+            trf('このライブラリの作品がある {0:,} 投稿で判定。\n同じ投稿は最新の取り込み値を使用します。CSVにない過去投稿も比較対象です。\nこの投稿の取り込み日時: {1}', record['ranking_post_count'], record['imported_at']))
         def count(value):
             return tr('不明') if value is None else f'{value:,}'
         def rate(value):
@@ -1751,6 +1789,8 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         if self._minimized_idle:return
         self.image_token += 1
         token = self.image_token
+        self.pending_image_request=None
+        for old_job in self.image_jobs.values():old_job.cancelled=True
         self.current_image = QImage()
         self.image_error = None
         self.preview.clear()
@@ -1769,6 +1809,12 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
                 self.thumbs.request([asset.sha256])
                 return
             source = cached
+        if len(self.image_jobs)>=2:
+            self.pending_image_request=(token,source)
+            return
+        self.start_image_job(token,source)
+
+    def start_image_job(self,token,source):
         job = ImageJob(token,source)
         self.image_jobs[token] = job
         job.signals.done.connect(self.image_loaded)
@@ -1776,6 +1822,10 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
 
     def image_loaded(self, token, image, error):
         self.image_jobs.pop(token,None)
+        pending=self.pending_image_request
+        if pending and not self.closing and not self._minimized_idle:
+            self.pending_image_request=None
+            if pending[0]==self.image_token:self.start_image_job(*pending)
         if self.closing or self._minimized_idle or token != self.image_token or not self.current:
             return
         if error:
@@ -1991,18 +2041,11 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
     def build_context_menu(self, asset):
         menu = self.make_copy_menu(self,asset)
         menu.addSeparator()
-        targets=self.selected_tag_assets() or [asset]
-        counts=self.tag_usage_counts()
-        names=self.frequent_tag_ids()
+        targets=([a for a in self.visible if a.identity in self.gallery.multi_selection]
+                 if asset.identity in self.gallery.multi_selection else [asset])
         frequent=menu.addMenu(tr('よく使うタグを付ける'))
-        for ident in names:
-            common=all(ident in self.manual_mapping.get(a.annotation_key,set()) for a in targets)
-            action=frequent.addAction(self.manual_definitions[ident])
-            action.setIcon(self.manual_tag_icon(ident))
-            action.setToolTip(trf('{0:,}作品に使用 · 付与済みならクリックで解除', counts[ident]))
-            action.setCheckable(True);action.setChecked(common)
-            action.triggered.connect(lambda _checked=False,i=ident:self.toggle_tag_batch(i))
-        if not names:
+        self.populate_manual_tag_menu(frequent,assign=True,frequent=True,targets=targets)
+        if not self.manual_definitions:
             frequent.addAction(tr('タグを登録してください')).setEnabled(False)
         menu.addAction(tr('登録済みタグを付ける / 外す…'),self.batch_tag_dialog)
         menu.addAction(tr('タグを登録・管理…'),self.manage_manual_tags)
@@ -2028,10 +2071,25 @@ class MainWindow(LanguageMixin,AppearanceMixin,PowerSavingMixin,AccountUiMixin,N
         self.apply_filters(preserve=True)
         self.toast(trf('{0:,}件の', len(targets))+(tr('お気に入り') if mode=='favorite' else tr('非表示'))+(tr('を設定しました') if enabled else tr('を解除しました')))
 
+    def show_quick_guide(self):
+        from .quick_guide import QuickGuideDialog
+        previous=getattr(self,'_quick_guide',None)
+        if previous is not None:
+            if previous.isVisible():previous.raise_();previous.activateWindow();return
+            previous.deleteLater()
+        self._quick_guide=QuickGuideDialog(self)
+        self._quick_guide.show()
+
     def context_menu(self, asset, point):
-        menu=self.build_context_menu(asset)
-        menu.exec(point)
-        menu.deleteLater()
+        self._context_tag_targets=([a for a in self.visible if a.identity in self.gallery.multi_selection]
+                                  if asset.identity in self.gallery.multi_selection else [asset])
+        menu=None
+        try:
+            menu=self.build_context_menu(asset)
+            menu.exec(point)
+        finally:
+            self._context_tag_targets=None
+            if menu is not None:menu.deleteLater()
 
     def copy_image(self, asset=None):
         if isinstance(QApplication.focusWidget(),QLineEdit) and asset is None:

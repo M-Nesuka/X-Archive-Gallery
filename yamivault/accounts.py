@@ -38,6 +38,9 @@ def register_account(store,root,summary,completed=False):
 
 
 def libraries(store):
+    # Normalize directory aliases before account grouping or combined loading.
+    for (root,) in list(store.db.execute('SELECT root FROM libraries')):
+        if str(Path(root).resolve()).casefold()!=root:store.library(Path(root))
     result=[]
     for lid,root,added in store.db.execute('SELECT library_id,root,added_at FROM libraries'):
         meta=dict(store.get('library_account:'+lid,{}) or {})
@@ -51,13 +54,21 @@ def learn_existing_account(store,root,status):
     """Recover the handle from the recorded original ZIP, if still available."""
     lid=store.library(root)
     if store.get('library_account:'+lid,{}).get('username'):return
-    row=store.db.execute('SELECT summary FROM import_jobs WHERE root=? ORDER BY updated_at DESC LIMIT 1',
-                         (str(Path(root).resolve()),)).fetchone()
-    # Older versions stored import roots with original casing.
-    if not row:
-        row=store.db.execute('SELECT summary FROM import_jobs WHERE lower(root)=? ORDER BY updated_at DESC LIMIT 1',
-                            (str(Path(root).resolve()).lower(),)).fetchone()
-    summary=json.loads(row[0]) if row else {}
+    # A moved/copied library retains the original successful run ID in its
+    # catalog. Resolve that exact committed job before considering path-based
+    # history; the newest job at this path may be an unfinished ZIP analysis.
+    summary={}
+    for run in (status.get('last_complete'),status.get('last_attempt')):
+        if not run or run.get('status') not in ('complete','warnings'):continue
+        row=store.db.execute("SELECT summary FROM import_jobs WHERE job_id=? AND phase IN ('complete','warnings')",
+                             (run.get('id'),)).fetchone()
+        candidate=json.loads(row[0]) if row else {}
+        if candidate.get('owner'):
+            summary=candidate;break
+    if not summary:
+        row=store.db.execute("SELECT summary FROM import_jobs WHERE lower(root)=? AND phase IN ('complete','warnings') ORDER BY updated_at DESC LIMIT 1",
+                             (str(Path(root).resolve()).lower(),)).fetchone()
+        summary=json.loads(row[0]) if row else {}
     run=status.get('last_complete') or status.get('last_attempt') or {}
     path=summary.get('zip_path') or run.get('zip_path')
     if not summary.get('username') and path:

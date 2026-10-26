@@ -1,4 +1,4 @@
-# Third-party components — X Archive Gallery v1.5.0
+# Third-party components — X Archive Gallery v1.6.0
 
 These components are **not** covered by M.Nesuka's Source Available restrictions.
 Their original licenses and notices are retained in `licenses/` (binary release)
@@ -23,13 +23,13 @@ and `third_party/notices/` (application source).
 
 ## Corresponding sources supplied with this release
 
-`XArchiveGallery_v1.5.0_ThirdPartySources.zip` contains the original source
+`XArchiveGallery_v1.6.0_ThirdPartySources.zip` contains the original source
 archives identified by SHA-256 in `third_party/source-manifest.json`, Qt's tagged
 Windows FFmpeg provisioning/build scripts, the poster build recipe and its small
 Windows build-only patch. Qt module source archives contain their bundled
 third-party sources and notices. PySide/Shiboken share the pyside-setup archive.
 The source bundle is provided **alongside the application ZIP in the same GitHub
-v1.5.0 Release**, with equivalent public access and without an extra fee/login.
+v1.6.0 Release**, with equivalent public access and without an extra fee/login.
 The publisher must upload both assets; upstream links are supplementary references,
 not a substitute for the supplied source files.
 

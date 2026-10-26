@@ -23,6 +23,8 @@ class BatchTagUiMixin:
         self.batch_bar=bar
 
     def selected_tag_assets(self):
+        if getattr(self,'_context_tag_targets',None) is not None:
+            return self._context_tag_targets
         if self.gallery.multi_selection:
             return [a for a in self.visible if a.identity in self.gallery.multi_selection]
         return [self.current] if self.current else []

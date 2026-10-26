@@ -6,7 +6,7 @@ including necessary reverse engineering. `LICENSE.md` preserves these rights.
 
 1. Start the official EXE once, then close the app.
 2. Open `%LOCALAPPDATA%\XArchiveGallery\runtime\` in Explorer.
-3. Open the matching `v1.5.0-...` runtime folder. See `runtime-ready.json` to
+3. Open the matching `v1.6.0-...` runtime folder. See `runtime-ready.json` to
    identify it. User data is stored elsewhere, under `data`, and is not changed.
 4. Save a copy of the DLLs you plan to replace. Under `_internal\PySide6\`, replace
    Qt/PySide/FFmpeg DLLs with compatible modified versions built from supplied sources.

@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+from backup_engine.fs_paths import io_path
 from .i18n import tr,trf
 
 
@@ -86,6 +87,7 @@ def performance_tag_name(name):
     return '#プロフィール訪問数1位' if name=='#Profile1位' else name
 RATE_METRICS = ('like_rate', 'repost_rate', 'bookmark_rate', 'profile_rate',
                 'follows_per_1000', 'engagement_rate')
+MAX_ANALYTICS_CSV_BYTES = 50 * 1024 * 1024
 
 
 class AnalyticsCsvError(ValueError):
@@ -179,11 +181,16 @@ def _read_csv_bytes(raw):
 
 def preview_analytics_csv(path, assets, already_imported=False):
     path = Path(path)
+    limit = MAX_ANALYTICS_CSV_BYTES
     try:
-        raw = path.read_bytes()
+        if io_path(path).stat().st_size > limit:
+            raise AnalyticsCsvError(tr('CSVが大きすぎます（上限50MB）。期間を分けて出力してください。'))
+        # Bound the read too: the file can grow after stat().
+        with io_path(path).open('rb') as stream:
+            raw = stream.read(limit + 1)
     except OSError as exc:
         raise AnalyticsCsvError(trf('CSVを開けませんでした: {0}',exc)) from exc
-    if len(raw) > 50 * 1024 * 1024:
+    if len(raw) > limit:
         raise AnalyticsCsvError(tr('CSVが大きすぎます（上限50MB）。期間を分けて出力してください。'))
     text = _read_csv_bytes(raw)
     reader = csv.DictReader(io.StringIO(text, newline=''))

@@ -10,7 +10,7 @@ PUBLIC_TOOLS={'build.py','build_single.py','distribution_guard.py','runtime_audi
 
 def source_files(root):
     root=Path(root)
-    files=[root/p for p in ('main.py','launcher.py','README.md','LICENSE.md','THIRD_PARTY.md','BUILDING.md','.gitignore','requirements.txt','requirements-dev.txt','使い方.txt','はじめに.txt')]
+    files=[root/p for p in ('main.py','launcher.py','README.md','CHANGELOG.md','LICENSE.md','THIRD_PARTY.md','BUILDING.md','.gitignore','requirements.txt','requirements-dev.txt','使い方.txt','はじめに.txt')]
     files += sorted((root/'docs').glob('*.md'))
     files += sorted((root/'third_party').rglob('*.json'))
     files += [root/'third_party/BUILDING_FFMPEG.md']

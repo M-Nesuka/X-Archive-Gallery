@@ -1,6 +1,6 @@
-# X Archive Gallery v1.5.0
+# X Archive Gallery v1.6.0
 
-**正式版 / Stable release — Created by M.Nesuka**
+**Created by M.Nesuka**
 
 A local Windows gallery for images, GIFs and videos from your X archive.
 Includes manual tags, favorites, exact-duplicate hiding, discovery, slideshow,
@@ -9,18 +9,60 @@ No AI analysis, cloud API, web server or X account sign-in is used by the app.
 
 ## Download and update
 
-Download `XArchiveGallery_v1.5.0_Windows_x64.zip` from this repository's v1.5.0
+Download `XArchiveGallery_v1.6.0_Windows_x64.zip` from this repository's v1.6.0
 Release. Extract the ZIP and open `XArchiveGallery.exe`; Python is not required.
 Keep the accompanying license documents. Read `はじめに.txt` and `使い方.txt`.
 
-Existing v1.4.x users: close the app, replace its EXE with this release, and open
+Existing v1.4.x / v1.5.0 users: close the app, use the new EXE, and open
 it under the same Windows user. **Do not reset or re-import your library.**
 Works stay in your library; tags, favorites, Analytics and settings stay in
-`%LOCALAPPDATA%/XArchiveGallery/data`. Database schema version 8 is unchanged.
+`%LOCALAPPDATA%/XArchiveGallery/data`. The private DB now uses schema 9.
+An integrity-checked backup is made before upgrading older schemas; the library
+catalog is not migrated. Use this revision after upgrading, rather than an older EXE.
+To go back to public v1.5.0 (schema 8), close the app and restore the verified
+pre-upgrade private DB backup first. Keep a copy of the current DB too.
+Do not move your artwork folder as part of an app update: library identities
+are associated with their existing locations.
 
 First use: choose a save location → select the X archive ZIP → optionally select
 a **content / post-level** Analytics CSV → import → view the gallery.
 Analytics is optional. Language is selected from `… → 言語 / Language`.
+
+Manual tags can be organized into named groups in the tag manager. Right-click
+an artwork to choose a group and tag; choosing an applied tag again removes it.
+Creating a tag and editing an existing tag use separate drafts with explicit
+save buttons. Preview 34 background colors, including red, black, white, gold
+and silver, before saving. Grouping changes no artwork or Analytics data.
+Drag across the tag list to select multiple tags, then delete them together.
+With multiple tags selected, clicking a color applies it immediately. No second
+Apply button is needed. Groups and assignments remain unchanged.
+Ctrl adds individual tags and Shift selects a range. Hidden filtered-out tags
+are not deleted. Artwork files remain intact, and deleted hashtags are excluded
+from future imports.
+
+Automatic post tags start **OFF**. Opt in before importing or later in tag
+management. By default it matches registered names and search words, even for one post.
+Optionally enable frequent hashtag registration to discover new tags used in at least
+20 posts, up to 50 automatic tag types. Choose counts and limits on the first setup screen, or later under Basic in Automatic post tags.
+Saved post text can be retagged without rereading the ZIP. If the automatic tag limit is reached,
+increase it or specify a Registered tag and Search words; specified tags match even one post.
+Excluded/deleted tags and recorded per-image removals remain respected.
+In the table, enter the tag name on the left and words to look for on the right:
+`Animals` → `cat,dog`. Commas or Japanese commas separate alternatives.
+Add per-tag aliases to combine name variants; hashtag prefix matching is optional.
+Single Japanese characters and ASCII words shorter than three characters do not
+match body text; exact hashtags can still match. Exclusions start empty.
+Manual assignments and recorded removals survive rule changes. Existing legacy
+automatic tags are kept, without extending them to newly imported posts.
+Optional cleanup removes only unused legacy-generated tags; it preserves manual
+assignments, edited tags and recorded removals. Old frequency/type-limit settings
+are retained for compatibility but are no longer shown as effective controls.
+For archives imported with older versions, use **Read post text from ZIP** once;
+this reads metadata without writing artwork or the library catalog.
+Unchanged matching inputs reuse a verified result. Large updates run in background
+workers. Color-only edits avoid full filtering and layout. Original Analytics CSV
+copies support Windows long paths without changing Windows settings; oversized CSV
+files are rejected before a full read. All matching is local and deterministic. See [post tag design](docs/POST_TEXT_TAGS.md).
 
 To update works, import the newer full archive into the same library. Existing
 post attachments retain their saved file and annotations even when X changes
@@ -85,3 +127,9 @@ See `docs/PUBLISHING.md` and `third_party/source-manifest.json`.
 Signing is optional and supported by `tools/sign_release.py`.
 
 Author: **M.Nesuka**. This app is not affiliated with X Corp.
+
+### Analyticsの比較対象 / Analytics ranking scope
+
+高成績・NO.1は、このライブラリのギャラリー全体で作品がある投稿を比較します。過去と今回の保存済みCSVを合わせ、投稿ごとに最新の数値を使います。画像のない投稿や未収録の投稿は順位から除外しますが、元の成績は保存します。検索・年月・お気に入りの絞り込みでは順位は変わりません。Analyticsが未登録の作品は判定できません。
+
+Performance and NO.1 compare all artwork posts in the library, combining saved CSV history and using the latest imported metrics per post. Unlinked posts remain saved but cannot displace artwork awards. Search, date and favorite filters do not affect rankings. Works without Analytics cannot be ranked. Rankings remain separate for each library/account.

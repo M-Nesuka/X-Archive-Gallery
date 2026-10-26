@@ -1,5 +1,10 @@
 """Small, readable manual-tag palette, separate from purple/gold performance tags."""
 PALETTE = {
+    'red': ('赤', '#b82030', '#ffffff'),
+    'black': ('黒', '#141419', '#ffffff'),
+    'white': ('白', '#ffffff', '#23232d'),
+    'gold': ('金', '#e9c45c', '#3c2b06'),
+    'silver': ('銀', '#b8c4cf', '#29343e'),
     'teal': ('ティール', '#203f40', '#d2eeea'),
     'blue': ('ブルー', '#243e59', '#d8eaff'),
     'green': ('グリーン', '#314834', '#def0d8'),
@@ -9,7 +14,6 @@ PALETTE = {
     'sky': ('スカイ', '#85c6ed', '#163951'),
     'lime': ('ライム', '#b6d987', '#2d421c'),
     'salmon': ('サーモン', '#efa69a', '#502b25'),
-    'silver': ('シルバー', '#b8c4cf', '#29343e'),
     'rose': ('ローズ', '#ffc1d5', '#69283f'),
     'cherry': ('チェリー', '#ff8fab', '#5d1834'),
     'peach': ('ピーチ', '#ffd1ae', '#62361e'),

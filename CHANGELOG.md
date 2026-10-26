@@ -1,6 +1,43 @@
 # Changelog
 
-X Archive Gallery の主な変更履歴です。
+## v1.6.0 — 2026-10-27
+
+### Added / 追加
+- タググループのツリー表示、複数タグの移動・削除・クリック即時の一括色変更。
+- 登録タグと複数の検索語を表形式で設定し、投稿文・ハッシュタグから自動付与。登録済みは1投稿でも対象。
+- 選択式の頻出ハッシュタグ自動登録。初期条件は20投稿以上・最大50種類。複数画像も1投稿と数え、除外・削除・個別解除を維持。
+- 赤・黒・白・金のタグ色を追加し、計34色。銀は既存機能。
+
+### Improved / 改善
+- 初回画面で頻出ハッシュタグの自動登録・最低投稿数・種類数を直接設定可能。既存作品にもZIP再読込なしで反映。 / Configure hashtag discovery limits before the first import; reuse saved post text for later changes.
+- 自動登録上限に達した場合の案内と、指定タグは上限外・1投稿でも対象である説明を追加。 / Explain the discovery cap and how specified tags bypass it.
+- メイン中央の初回セットアップ、途中再開、任意Analytics、読みやすい日英の使い方・更新例。
+- タグ管理を基本・自動タグ・詳細へ整理。検索の選択表示、グループ表示、一括操作を改善。
+- 低解像度・高DPIの初回配置、右クリック時のギャラリー位置を改善。
+- 元CSV保存を新規設定で初期ONに変更。既存の明示的なOFF選択は保持。
+- 全体の順位は更新されるが、CSVにない過去作品の数値は以前のままであることを明記。100いいね・200いいね・150いいねの例を追加。
+- 自動タグの未変更時の結果再利用と背景照合、色変更時の再描画・同色のDB書き込みを削減。
+- 画像読み込み待ち列を制限。50MiB超のCSVを全読み込み前に拒否。
+
+### Fixed / 修正
+- アーカイブ更新時の同一投稿・同一添付の重複表示と、再エンコード時の作品識別を改善。
+- 保存先移動後にZIP選択から進めなくなる問題を修正。
+- 同じフォルダーを別パスで開いた際、タグ・グループ・Analyticsの設定が分離する問題を安全に統合。
+- 保存済みのAnalytics全体で作品のある投稿を比較。ギャラリーに作品のない投稿がNO.1を奪う問題を修正。
+- 取り込み結果で今回CSVの件数と総合判定の対象を区別。
+- 旧タグが新しい投稿へ付かない問題、削除タグの復活、新規タグ作成時の別タグへの色変更を修正。
+- 見えない異体字指定文字によるタグ重複・除外漏れを防止。
+- Windows長パスでのCSV原本保存、非同期処理の完了待機を修正。
+
+### Data / データ・注意点
+- 公開v1.5.0のschema8から9へ、整合性確認・更新前バックアップ・transactionで移行。
+- 作品・タグ・グループ・お気に入り・Analytics・非表示を保持。元作品をタグ処理で書き換えない。
+- CSVに含まれない過去作品は以前の数値を使用。Analytics未登録作品は成績判定できない。
+- 旧版へ戻す場合はアプリを終了し、現在のDBを保管して更新前DBを復元する。
+- English UI, light theme, accounts, slideshow, miniature previews, Analytics import, CSV backup,
+  cumulative ranking, duplicate hiding, power saving and Source Available were already available in v1.5.0.
+- This update improves those features; it does not fetch missing current metrics from X.
+- GitHubへの公開は作者の承認後に実施。
 
 ## v1.5.0 - 2026-10-08
 

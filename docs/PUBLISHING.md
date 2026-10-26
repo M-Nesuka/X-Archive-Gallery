@@ -1,15 +1,15 @@
-# Publish v1.5.0 on GitHub
+# Publish v1.6.0 on GitHub
 
 Upload this organized application source folder as the repository contents.
 Keep `LICENSE.md`, `THIRD_PARTY.md`, `third_party/` and build documentation.
 It is **Source Available**, not MIT/open source. GitHub's public-repository
 viewing/forking permissions still apply; the license acknowledges this.
 
-Create the **v1.5.0** Release as a normal release, not a prerelease/Public Beta.
+Create the **v1.6.0** Release as a normal release, not a prerelease/Public Beta.
 Upload these two assets in the same public Release:
 
-- `XArchiveGallery_v1.5.0_Windows_x64.zip`
-- `XArchiveGallery_v1.5.0_ThirdPartySources.zip`
+- `XArchiveGallery_v1.6.0_Windows_x64.zip`
+- `XArchiveGallery_v1.6.0_ThirdPartySources.zip`
 
 Upload `SHA256SUMS.txt` too. Publish both download links together, at no added
 charge or access restriction for source. Do not upload the application ZIP alone:
@@ -18,7 +18,7 @@ GitHub's automatic app-only “Source code” downloads do not replace that arch
 
 Suggested Release text:
 
-> X Archive Gallery v1.5.0 — 正式版 / Stable release. Created by M.Nesuka.
+> X Archive Gallery v1.6.0 — 正式版 / Stable release. Created by M.Nesuka.
 > Windows x64; Python installation is not required. Extract the app ZIP and open
 > XArchiveGallery.exe. Existing v1.4.x users: close the app, replace the EXE, then
 > reopen under the same Windows user. Do not reset your library.

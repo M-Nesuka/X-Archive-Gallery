@@ -33,6 +33,8 @@ class WarningMediaJob(QThread):
             store=VaultStore(self.data_dir)
             library_id=store.library(self.library_root)
             count=store.add_warning_assets(library_id,self.issues)
+            from .catalog import read_catalog
+            store.reconcile_post_tags(library_id,read_catalog(self.library_root)+store.warning_assets(library_id))
             self.completed.emit(count,'')
         except Exception as exc:
             self.completed.emit(0,error_text(exc))

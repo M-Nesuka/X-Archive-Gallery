@@ -18,6 +18,7 @@ from PIL import Image
 
 from .archive import Asset, Cancelled, IMAGES, Issue, JST, Plan, check_cancel, fingerprint
 from .identity import attachment_identity
+from .fs_paths import io_path
 
 FOLDER = 'X作品バックアップ'
 CHUNK = 1024 * 1024
@@ -30,7 +31,8 @@ def now():
 def reject_links(path):
     path = Path(path).absolute()
     for part in (path, *path.parents):
-        if part.is_symlink() or (hasattr(part, 'is_junction') and part.is_junction()):
+        checked = io_path(part)
+        if checked.is_symlink() or (hasattr(checked, 'is_junction') and checked.is_junction()):
             raise ValueError(f'リンク経由の保存先は使えません。実際のフォルダを選んでください: {part}')
     return path
 

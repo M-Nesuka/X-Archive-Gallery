@@ -26,6 +26,7 @@ class PowerSavingMixin:
             self.fullscreen_hide_timer.stop()
             for timer in (self.gallery.request_timer,self.gallery.layout_timer,self.gallery.drag_scroll_timer):timer.stop()
             for job in self.image_jobs.values():job.cancelled=True
+            self.pending_image_request=None
             self.image_token+=1;self.pending_copy=None
             self.current_image=QImage();self.preview.clear();self.large.clear()
             self.gallery.pixmaps.clear();self.gallery.pixmap_bytes=0

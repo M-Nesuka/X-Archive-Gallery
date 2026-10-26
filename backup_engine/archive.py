@@ -85,6 +85,7 @@ class Plan:
     earliest_post_at: str | None = None
     latest_post_at: str | None = None
     unknown_dates: int = 0
+    post_metadata: dict = field(default_factory=dict)
 
     @property
     def total_bytes(self):
@@ -356,6 +357,14 @@ def analyze(path, progress: Callable = lambda *x: None, cancel=None):
                         own_items.append((index, media))
                     if own_items:
                         seen_media_posts.add(pid)
+                    # Retain only media-post text, never nested quote/RT bodies.
+                    if own_items or by_post.get(pid):
+                        entities = tweet.get('entities') or {}
+                        hashtags = [str(h.get('text') or '') for h in entities.get('hashtags', [])
+                                    if isinstance(h, dict) and h.get('text')]
+                        previous = plan.post_metadata.get(pid)
+                        if previous is None or len(text) > len(previous['text']):
+                            plan.post_metadata[pid] = {'text': text[:131072], 'hashtags': hashtags[:500]}
                     try:
                         posted_at = post_date(tweet.get('created_at') or tweet.get('createdAt'))
                     except Exception as exc:
@@ -419,6 +428,8 @@ def analyze(path, progress: Callable = lambda *x: None, cancel=None):
                 raise
             except Exception as exc:
                 plan.issues.append(Issue('エラー', '', '', datafile.filename, f'投稿データの読み取りに失敗しました: {exc}'))
+        media_post_ids = {asset.post_id for asset in plan.assets}
+        plan.post_metadata = {pid: value for pid, value in plan.post_metadata.items() if pid in media_post_ids}
         plan.posts = len(seen_posts)
         plan.media_posts = len(seen_media_posts)
         for info in candidates:

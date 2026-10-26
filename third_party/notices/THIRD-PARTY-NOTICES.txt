@@ -1,4 +1,4 @@
-X Archive Gallery v1.5.0 — Created by M.Nesuka
+X Archive Gallery v1.6.0 — Created by M.Nesuka
 This software uses Qt/PySide6/Shiboken under LGPLv3 and FFmpeg under
 LGPLv2.1-or-later. Qt and its FFmpeg playback libraries are dynamically
 replaceable. The separate LGPL poster process has sources for its static
